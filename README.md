@@ -74,6 +74,10 @@ into clean black-on-white text and reads it as one line.
 - A read only counts if it is exactly that format, a real team code and a
   number that exists for that team. Where a letter must be, a misread `0` is
   taken as `O` (and `O` as `0` where a digit must be), and so on.
+- The label is split at the space: the three letters are read one by one
+  (A–Z only) and the number separately (0–9 only). A plain vertical bar is
+  taken as the letter I, which OCR otherwise tends to drop (CIV, BIH, SUI,
+  IRN, IRQ).
 - Each scan reads the label at a few sizes and is only *sure* when two reads
   agree; otherwise it asks you to check. Auto-add only uses sure reads.
 - A card tilted more than 4° is rejected with a prompt to straighten it and
@@ -90,6 +94,7 @@ into clean black-on-white text and reads it as one line.
 ## Tests
 
     node test/parse.test.js
+    node test/preprocess.test.js
 
 covers the OCR-text parser (including common misreads like `O`↔`0`, `8`↔`B`,
 and noise seen on real sticker backs) and CSV import/export.

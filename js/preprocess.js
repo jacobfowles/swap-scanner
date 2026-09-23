@@ -230,7 +230,59 @@
     return img;
   }
 
-  const api = { prepareForOcr, otsu, findCodePill, clearBorder, isolateText };
+  // Split a cleaned label image (black text on white, from isolateText) into
+  // glyph columns, and find the space between the three letters and the
+  // number: the widest gap. Returns { top, bottom, letters: [{x0, x1}...],
+  // digits: [{x0, x1}...] } or null. Glyphs that touch stay one run, which
+  // is fine — each part is read as a word.
+  function splitCode(img) {
+    const { width: w, height: h, data: px } = img;
+    const colDark = new Uint8Array(w);
+    let top = h, bottom = -1;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (px[(y * w + x) * 4] < 128) {
+          colDark[x] = 1;
+          if (y < top) top = y;
+          if (y > bottom) bottom = y;
+        }
+      }
+    }
+    const runs = [];
+    for (let x = 0; x < w; x++) {
+      if (!colDark[x]) continue;
+      const x0 = x;
+      while (x < w && colDark[x]) x++;
+      // Vertical extent and ink count of this glyph column run.
+      let y0 = h, y1 = -1, ink = 0;
+      for (let y = 0; y < h; y++) {
+        for (let xx = x0; xx < x; xx++) {
+          if (px[(y * w + xx) * 4] < 128) { ink++; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+        }
+      }
+      runs.push({ x0, x1: x - 1, y0, y1, ink });
+    }
+    if (runs.length < 2 || bottom < 0) return null;
+    let split = 1, widest = -1;
+    for (let i = 1; i < runs.length; i++) {
+      const gap = runs[i].x0 - runs[i - 1].x1;
+      if (gap > widest) { widest = gap; split = i; }
+    }
+    // The space must stand out from the gaps between letters.
+    const others = runs.slice(1).map((r, i) => r.x0 - runs[i].x1).filter((g, i) => i + 1 !== split);
+    if (others.length && widest < 1.5 * Math.max(...others)) return null;
+    return { top, bottom, letters: runs.slice(0, split), digits: runs.slice(split) };
+  }
+
+  // Is this glyph run a capital I? In the label font it is a plain solid bar:
+  // much taller than wide, almost fully inked, full letter height. OCR can't
+  // read a lone bar reliably, and no other capital looks like one.
+  function isBar(run, letterHeight) {
+    const w = run.x1 - run.x0 + 1, h = run.y1 - run.y0 + 1;
+    return w / h < 0.3 && run.ink / (w * h) > 0.8 && h > 0.8 * letterHeight;
+  }
+
+  const api = { prepareForOcr, otsu, findCodePill, clearBorder, isolateText, splitCode, isBar };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PaniniPreprocess = api;
 })(this);

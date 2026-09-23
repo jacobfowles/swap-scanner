@@ -2,7 +2,7 @@
   const { TEAMS, BY_CODE } = window.PaniniTeams;
   const { parseCodeLine, inRange } = window.PaniniParse;
   const Catalog = window.PaniniCatalog;
-  const { prepareForOcr, findCodePill, clearBorder, isolateText } = window.PaniniPreprocess;
+  const { prepareForOcr, findCodePill, clearBorder, isolateText, splitCode, isBar } = window.PaniniPreprocess;
 
   const STORAGE_KEY = 'panini-wc26-swaps-v1';
   const AREA_KEY = 'panini-wc26-area-v1';
@@ -157,19 +157,37 @@
     return { canvas, ctx, img: ctx.getImageData(0, 0, canvas.width, canvas.height) };
   }
 
-  // The label as dark text on white: `height` px tall (Tesseract reads text
-  // best around 40-60px high) with a white margin.
-  function pillCanvas(rect, height) {
+  // The label as dark text on white, `height` px tall (Tesseract reads text
+  // best around 40-60px high). Returns an unpadded canvas of its own.
+  function labelCanvas(rect, height) {
     const { canvas, ctx, img } = grab(rect, height * rect.w / rect.h);
-    ctx.putImageData(isolateText(clearBorder(prepareForOcr(img, 'invert'))), 0, 0);
-    const pad = 20;
     const out = document.createElement('canvas');
-    out.width = canvas.width + 2 * pad;
-    out.height = canvas.height + 2 * pad;
+    out.width = canvas.width;
+    out.height = canvas.height;
+    out.getContext('2d', { willReadFrequently: true })
+      .putImageData(isolateText(clearBorder(prepareForOcr(img, 'invert'))), 0, 0);
+    return out;
+  }
+
+  // Copy glyph columns `runs` (rows top..bottom) of `src` onto a new white
+  // canvas with a margin, at least `minGap` px apart. Spreading the letters
+  // stops a narrow one (the I in CIV) being swallowed by its neighbour.
+  function composeRuns(src, runs, top, bottom, minGap) {
+    const pad = 20, h = bottom - top + 1;
+    const gaps = runs.slice(1).map((r, i) => Math.max(minGap, r.x0 - runs[i].x1 - 1));
+    const width = runs.reduce((sum, r) => sum + r.x1 - r.x0 + 1, 0) + gaps.reduce((a, g) => a + g, 0);
+    const out = document.createElement('canvas');
+    out.width = width + 2 * pad;
+    out.height = h + 2 * pad;
     const o = out.getContext('2d');
     o.fillStyle = '#fff';
     o.fillRect(0, 0, out.width, out.height);
-    o.drawImage(canvas, pad, pad);
+    let x = pad;
+    runs.forEach((r, i) => {
+      const rw = r.x1 - r.x0 + 1;
+      o.drawImage(src, r.x0, top, rw, h, x, pad, rw, h);
+      x += rw + (gaps[i] || 0);
+    });
     return out;
   }
 
@@ -195,6 +213,56 @@
   }
 
   const LINE = { tessedit_pageseg_mode: '7', tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ' };
+  const LETTERS = { tessedit_pageseg_mode: '8', tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' };
+  const LETTER = { tessedit_pageseg_mode: '10', tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' };
+  const DIGITS = { tessedit_pageseg_mode: '8', tessedit_char_whitelist: '0123456789' };
+
+  async function ocr(worker, canvas, params, tag) {
+    await worker.setParameters(params);
+    const { data } = await worker.recognize(canvas);
+    if (window.__scanDebug) window.__scanDebug.push({ mode: tag, text: data.text, png: canvas.toDataURL() });
+    return data.text.trim();
+  }
+
+  // Read one rendering of the label. Preferred: split it at the space and
+  // read the letters (A-Z only) and the number (0-9 only) separately. With
+  // three separate letter glyphs each is read on its own, and a plain bar is
+  // taken as I (the I in CIV/BIH/SUI is otherwise often dropped). The digit
+  // count must match the digit glyphs. If it can't be split cleanly, read it
+  // as one line.
+  async function readLabel(worker, rect, height) {
+    const label = labelCanvas(rect, height);
+    const parts = splitCode(label.getContext('2d').getImageData(0, 0, label.width, label.height));
+    if (parts) {
+      const { top, bottom } = parts;
+      const gap = Math.round((bottom - top + 1) * 0.3);
+      let letters = '';
+      if (parts.letters.length === 3) {
+        const letterHeight = Math.max(...parts.letters.map(r => r.y1 - r.y0 + 1));
+        for (const run of parts.letters) {
+          letters += isBar(run, letterHeight)
+            ? 'I'
+            : (await ocr(worker, composeRuns(label, [run], top, bottom, gap), LETTER, 'letter' + height)).replace(/\s/g, '').slice(0, 1);
+        }
+      } else {
+        letters = (await ocr(worker, composeRuns(label, parts.letters, top, bottom, gap), LETTERS, 'letters' + height)).replace(/\s/g, '');
+      }
+      const digits = (await ocr(worker, composeRuns(label, parts.digits, top, bottom, gap), DIGITS, 'digits' + height)).replace(/\s/g, '');
+      // Two separate digit glyphs must give two digits (and one, one).
+      const digitsOk = parts.digits.length > 2 || digits.length === parts.digits.length || parts.digits.length === 1;
+      const r = parseCodeLine(`${letters} ${digits}`);
+      if (r.confident && digitsOk) return r;
+    }
+    const pad = 20;
+    const line = document.createElement('canvas');
+    line.width = label.width + 2 * pad;
+    line.height = label.height + 2 * pad;
+    const o = line.getContext('2d');
+    o.fillStyle = '#fff';
+    o.fillRect(0, 0, line.width, line.height);
+    o.drawImage(label, pad, pad);
+    return parseCodeLine(await ocr(worker, line, LINE, 'line' + height));
+  }
 
   // Reads the label at a few sizes and stops once two reads agree. Returns
   // { code, number, confident, sure, reason }: `sure` means two reads agreed
@@ -220,11 +288,7 @@
     const votes = new Map();
     let first = null;
     for (const pass of passes) {
-      const canvas = pillCanvas(pass.rect, pass.h);
-      await worker.setParameters(LINE);
-      const { data } = await worker.recognize(canvas);
-      if (window.__scanDebug) window.__scanDebug.push({ mode: 'h' + pass.h, text: data.text, png: canvas.toDataURL() });
-      const r = parseCodeLine(data.text);
+      const r = await readLabel(worker, pass.rect, pass.h);
       if (!r.confident) continue;
       const id = Catalog.stickerId(r.code, r.number);
       votes.set(id, (votes.get(id) || 0) + 1);
