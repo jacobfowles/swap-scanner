@@ -55,7 +55,13 @@ and open <http://localhost:8000/>.
   with an iPhone's silent switch on; the volume buttons set how loud. Sound is
   switched on by your first tap in the app (browsers require that).
 - **Type it in** — for anything the camera struggles with.
-- **Undo** — every add shows a toast with *Undo* for a few seconds.
+- **Undo** — every add shows a bar with a big yellow **UNDO** button for 8
+  seconds, and the **↶ Undo** button under the camera (it names the sticker,
+  e.g. *↶ Undo ESP 16*) stays available: each tap takes back one more add.
+- **Catalogs** — keep several named lists (e.g. one per person). Pick one in
+  the *Catalog* menu at the top; *＋ New catalog…* makes another. Scans, CSV
+  export/import and the swap list all use the selected catalog. Rename,
+  clear or delete it at the bottom of the Catalog tab.
 - **Catalog** — spares grouped by team in album order, with +/− buttons and a
   filter.
 - **Share / Download CSV** — columns `sticker,code,number,team,group,quantity`.
@@ -63,6 +69,15 @@ and open <http://localhost:8000/>.
 - **Import CSV** — merge another phone's export into yours (or replace your
   list). It also accepts any CSV with a `sticker` column (`MEX 12`) or `code`
   and `number` columns, plus an optional `quantity`.
+
+## Password
+
+If a password is set in [`js/config.js`](js/config.js), the app asks for it
+the first time it's opened on a phone and remembers it after that. Only a
+SHA-256 hash is stored. To change it, open the app, run
+`await swapScannerHash('new password')` in the browser console and paste the
+result into `config.js`. This keeps casual visitors out; it isn't real
+security, since GitHub Pages is static and the code is public.
 
 ## How the reading works
 

@@ -14,6 +14,18 @@
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+<div id="gate" class="gate" hidden>
+  <form id="gate-form" class="gate-card" autocomplete="on">
+    <img src="icon.svg" alt="" width="64" height="64">
+    <h1>Swap Scanner</h1>
+    <label for="gate-password">Password</label>
+    <input id="gate-password" type="password" autocomplete="current-password" required>
+    <p id="gate-error" class="error"></p>
+    <button type="submit" class="primary big">Open</button>
+  </form>
+</div>
+<script src="js/config.js"></script>
+<script src="js/gate.js"></script>
 <header>
   <h1>Swap Scanner</h1>
   <span id="total-badge" class="badge">0 spares</span>
@@ -23,6 +35,11 @@
   <button role="tab" data-tab="scan" class="active">Scan</button>
   <button role="tab" data-tab="catalog">Catalog</button>
 </nav>
+
+<div class="catalog-bar">
+  <label for="catalog-select">Catalog</label>
+  <select id="catalog-select" aria-label="Current catalog"></select>
+</div>
 
 <main>
   <section id="tab-scan" class="tab active">
@@ -51,6 +68,7 @@
 
     <div class="scan-controls">
       <button id="scan-btn" class="primary big" disabled>Scan</button>
+      <button id="undo-last" class="undo-big" disabled>↶ Undo</button>
       <button id="torch-btn" class="icon-btn" hidden title="Flashlight">🔦</button>
     </div>
     <div class="scan-options">
@@ -76,7 +94,11 @@
     </div>
     <input type="search" id="filter" placeholder="Filter (e.g. ARG or Brazil)" autocomplete="off">
     <div id="catalog-list"></div>
-    <p class="danger-zone"><button id="clear-btn" class="link-btn danger">Clear the whole catalog</button></p>
+    <p class="danger-zone">
+      <button id="rename-btn" class="link-btn">Rename this catalog</button>
+      <button id="clear-btn" class="link-btn danger">Clear this catalog</button>
+      <button id="delete-btn" class="link-btn danger">Delete this catalog</button>
+    </p>
   </section>
 </main>
 
@@ -109,7 +131,10 @@
   </div>
 </div>
 
-<div id="toast" class="toast" hidden><span id="toast-text"></span><button id="toast-undo" class="link-btn">Undo</button></div>
+<div id="toast" class="toast" hidden role="status">
+  <span id="toast-text"></span>
+  <button id="toast-undo" class="toast-undo">↶ UNDO</button>
+</div>
 
 <canvas id="work" hidden></canvas>
 

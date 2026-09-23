@@ -4,14 +4,16 @@
   const Catalog = window.PaniniCatalog;
   const { prepareForOcr, findCodePill, clearBorder, isolateText, splitCode, isBar } = window.PaniniPreprocess;
 
-  const STORAGE_KEY = 'panini-wc26-swaps-v1';
+  const STORE_KEY = 'panini-wc26-catalogs-v1';
+  const OLD_STORAGE_KEY = 'panini-wc26-swaps-v1';   // single catalog, before named catalogs
   const AREA_KEY = 'panini-wc26-area-v1';
   const SOUND_KEY = 'panini-wc26-sound-v1';
   const $ = id => document.getElementById(id);
 
   // ---------------------------------------------------------------- state --
+  const store = loadStore();   // { current, catalogs: { id: { name, items, updated } } }
   const state = {
-    items: load(),
+    items: store.catalogs[store.current].items,   // the current catalog's stickers
     area: loadArea(),   // user-drawn scan box, fractions of the camera view
     stream: null,
     torchOn: false,
@@ -24,18 +26,29 @@
     warned: false,      // crooked-card warning already given for this card
     disturbed: false,   // movement seen since the last add: a card is being stacked
     recent: [],
-    undo: null,
+    undoStack: [],      // adds in this catalog that can be undone, newest last
   };
 
-  function load() {
+  // All catalogs live in one localStorage entry. A catalog from before named
+  // catalogs existed is carried over as "My swaps".
+  function loadStore() {
+    let data = null;
+    try { data = JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) {}
+    if (data && data.catalogs && data.catalogs[data.current]) return data;
+    let items = {};
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const data = raw ? JSON.parse(raw) : null;
-      return data && data.items ? data.items : {};
-    } catch (e) {
-      return {};
-    }
+      const old = JSON.parse(localStorage.getItem(OLD_STORAGE_KEY));
+      if (old && old.items) items = old.items;
+    } catch (e) {}
+    const id = newCatalogId();
+    return { current: id, catalogs: { [id]: { name: 'My swaps', items, updated: new Date().toISOString() } } };
   }
+
+  function newCatalogId() {
+    return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  }
+
+  const currentCatalog = () => store.catalogs[store.current];
 
   function loadArea() {
     try {
@@ -47,8 +60,11 @@
   }
 
   function save() {
+    const cat = currentCatalog();
+    cat.items = state.items;
+    cat.updated = new Date().toISOString();
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ items: state.items, updated: new Date().toISOString() }));
+      localStorage.setItem(STORE_KEY, JSON.stringify(store));
     } catch (e) {
       setStatus('Could not save to this browser — export your CSV to be safe.');
     }
@@ -559,14 +575,34 @@
     state.recent = state.recent.slice(0, 8);
     renderRecent();
     setStatus(`Added ${id}${qty > 1 ? ' ×' + qty : ''}. You have ${state.items[id]} spare${state.items[id] > 1 ? 's' : ''}.`);
-    showToast(`Added ${id}${qty > 1 ? ' ×' + qty : ''}`, () => {
-      addSticker(code, n, -qty);
-      state.recent = state.recent.filter((r, i) => !(i === 0 && r.id === id));
-      renderRecent();
-      setStatus(`Removed ${id}.`);
-      // Stay locked on this card so it isn't immediately re-added.
-      hideBanner();
-    });
+    state.undoStack.push({ code, n, qty, id });
+    if (state.undoStack.length > 50) state.undoStack.shift();
+    renderUndo();
+    showToast(`Added ${id}${qty > 1 ? ' ×' + qty : ''}`, true);
+  }
+
+  // Undo the most recent add (repeatable: each tap goes one further back).
+  function undoLast() {
+    const last = state.undoStack.pop();
+    if (!last) return;
+    addSticker(last.code, last.n, -last.qty);
+    const i = state.recent.findIndex(r => r.id === last.id && r.qty === last.qty);
+    if (i >= 0) state.recent.splice(i, 1);
+    renderRecent();
+    renderUndo();
+    hideToast();
+    // Stay locked on this card (auto-scan) so it isn't immediately re-added.
+    hideBanner();
+    const left = state.items[last.id] || 0;
+    setStatus(`Undid ${last.id}${last.qty > 1 ? ' ×' + last.qty : ''} — ${left} spare${left === 1 ? '' : 's'} left.`);
+    beep('warn');
+  }
+
+  function renderUndo() {
+    const last = state.undoStack[state.undoStack.length - 1];
+    const btn = $('undo-last');
+    btn.disabled = !last;
+    btn.textContent = last ? `↶ Undo ${last.id}${last.qty > 1 ? ' ×' + last.qty : ''}` : '↶ Undo';
   }
 
   // -------------------------------------------------------------- feedback --
@@ -658,13 +694,17 @@
 
   // ----------------------------------------------------------------- toast --
   let toastTimer = null;
-  function showToast(text, undo) {
+  function showToast(text, withUndo) {
     $('toast-text').textContent = text;
-    $('toast-undo').hidden = !undo;
-    state.undo = undo || null;
+    $('toast-undo').hidden = !withUndo;
     $('toast').hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { $('toast').hidden = true; state.undo = null; }, 4000);
+    toastTimer = setTimeout(hideToast, withUndo ? 8000 : 4000);
+  }
+
+  function hideToast() {
+    clearTimeout(toastTimer);
+    $('toast').hidden = true;
   }
 
   // ------------------------------------------------------------- rendering --
@@ -681,6 +721,7 @@
   }
 
   function render() {
+    renderCatalogPicker();
     const entries = Catalog.sortedEntries(state.items);
     const total = entries.reduce((s, e) => s + e.qty, 0);
     const teams = new Set(entries.map(e => e.code));
@@ -729,7 +770,8 @@
   // ----------------------------------------------------- export / import --
   function csvFile() {
     const date = new Date().toISOString().slice(0, 10);
-    return new File([Catalog.toCSV(state.items)], `panini-wc26-swaps-${date}.csv`, { type: 'text/csv' });
+    const slug = currentCatalog().name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'swaps';
+    return new File([Catalog.toCSV(state.items)], `panini-wc26-${slug}-${date}.csv`, { type: 'text/csv' });
   }
 
   function download() {
@@ -748,7 +790,7 @@
     const file = csvFile();
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
-        await navigator.share({ files: [file], title: 'Panini World Cup 2026 swaps' });
+        await navigator.share({ files: [file], title: `Panini World Cup 2026 swaps — ${currentCatalog().name}` });
       } catch (e) {
         if (e.name !== 'AbortError') download();
       }
@@ -758,7 +800,7 @@
   }
 
   async function copyTradeText() {
-    const text = Catalog.toTradeText(state.items);
+    const text = Catalog.toTradeText(state.items, currentCatalog().name);
     try {
       await navigator.clipboard.writeText(text);
       showToast('Swap list copied — paste it into a chat');
@@ -782,6 +824,68 @@
     render();
     showToast(`Imported ${count} stickers${skipped ? ` (${skipped} rows skipped)` : ''}`);
   }
+
+  // ------------------------------------------------------------- catalogs --
+  const catalogTotal = items => Object.values(items).reduce((a, q) => a + q, 0);
+
+  function renderCatalogPicker() {
+    const sel = $('catalog-select');
+    sel.innerHTML = Object.entries(store.catalogs)
+      .sort((a, b) => a[1].name.localeCompare(b[1].name))
+      .map(([id, c]) => `<option value="${id}">${escapeHtml(c.name)} (${catalogTotal(c.items)})</option>`)
+      .join('') + '<option value="__new">＋ New catalog…</option>';
+    sel.value = store.current;
+  }
+
+  function askCatalogName(message, current) {
+    const name = (prompt(message, current || '') || '').trim().slice(0, 40);
+    if (!name) return null;
+    const taken = Object.entries(store.catalogs).some(([id, c]) => id !== store.current && c.name.toLowerCase() === name.toLowerCase());
+    if (taken && name !== current) { alert(`There's already a catalog called “${name}”.`); return null; }
+    return name;
+  }
+
+  function switchCatalog(id) {
+    store.current = id;
+    state.items = store.catalogs[id].items;
+    state.recent = [];
+    state.undoStack = [];
+    state.lastRead = null;
+    lockOn(null);
+    hideBanner();
+    hideToast();
+    save();
+    render();
+    renderUndo();
+    setStatus(`Now using the catalog “${currentCatalog().name}”.`);
+  }
+
+  $('catalog-select').addEventListener('change', e => {
+    if (e.target.value !== '__new') { switchCatalog(e.target.value); return; }
+    const name = askCatalogName('Name for the new catalog (e.g. “Sam’s swaps”):');
+    if (!name) { renderCatalogPicker(); return; }
+    const id = newCatalogId();
+    store.catalogs[id] = { name, items: {}, updated: new Date().toISOString() };
+    switchCatalog(id);
+  });
+
+  $('rename-btn').addEventListener('click', () => {
+    const name = askCatalogName('New name for this catalog:', currentCatalog().name);
+    if (!name) return;
+    currentCatalog().name = name;
+    save();
+    render();
+  });
+
+  $('delete-btn').addEventListener('click', () => {
+    const ids = Object.keys(store.catalogs);
+    const cat = currentCatalog();
+    if (ids.length === 1) { alert('This is your only catalog. Use “Clear this catalog” to empty it instead.'); return; }
+    const n = catalogTotal(cat.items);
+    if (!confirm(`Delete the catalog “${cat.name}”${n ? ` and its ${n} sticker${n === 1 ? '' : 's'}` : ''}? This can't be undone — export its CSV first if you want a copy.`)) return;
+    delete store.catalogs[store.current];
+    switchCatalog(ids.find(id => id !== store.current && store.catalogs[id]));
+  });
 
   // ------------------------------------------------------------ scan area --
   // With a scanner stand the sticker is always in the same spot, so the user
@@ -906,11 +1010,8 @@
   $('sheet').addEventListener('click', e => { if (e.target === $('sheet')) closeSheet(); });
   $('sheet-number').addEventListener('keydown', e => { if (e.key === 'Enter') submitSheet(); });
 
-  $('toast-undo').addEventListener('click', () => {
-    if (state.undo) state.undo();
-    state.undo = null;
-    $('toast').hidden = true;
-  });
+  $('toast-undo').addEventListener('click', undoLast);
+  $('undo-last').addEventListener('click', undoLast);
 
   $('filter').addEventListener('input', render);
   $('share-btn').addEventListener('click', share);
@@ -924,13 +1025,17 @@
   });
   $('clear-btn').addEventListener('click', () => {
     if (!Object.keys(state.items).length) return;
-    if (!confirm('Delete every sticker from the catalog? Export a CSV first if you want a backup.')) return;
+    if (!confirm(`Remove every sticker from “${currentCatalog().name}”? Export a CSV first if you want a backup.`)) return;
     state.items = {};
     state.recent = [];
+    state.undoStack = [];
+    renderUndo();
     save();
     render();
   });
 
   applyArea();
+  save();   // persists a carried-over or brand-new catalog store
   render();
+  renderUndo();
 })();

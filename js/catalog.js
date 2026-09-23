@@ -95,7 +95,7 @@
   }
 
   // Compact text for pasting into a chat: "MEX 3, 7 (x2), 12".
-  function toTradeText(items) {
+  function toTradeText(items, name) {
     const byTeam = new Map();
     for (const e of sortedEntries(items)) {
       if (!byTeam.has(e.code)) byTeam.set(e.code, []);
@@ -103,7 +103,7 @@
     }
     const lines = [...byTeam].map(([code, nums]) => `${code} ${nums.join(', ')}`);
     const total = sortedEntries(items).reduce((s, e) => s + e.qty, 0);
-    return `Panini World Cup 2026 swaps (${total}):\n` + lines.join('\n');
+    return `Panini World Cup 2026 swaps${name ? ' — ' + name : ''} (${total}):\n` + lines.join('\n');
   }
 
   const api = { stickerId, splitId, sortedEntries, toCSV, fromCSV, toTradeText, CSV_HEADER };

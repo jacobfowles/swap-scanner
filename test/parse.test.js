@@ -54,4 +54,6 @@ assert.strictEqual(loose.skipped, 1);
 assert.strictEqual(Catalog.toTradeText(items),
   'Panini World Cup 2026 swaps (7):\nFWC 3\nMEX 2 (x3), 12\nARG 7 (x2)');
 
+assert.ok(Catalog.toTradeText(items, 'Sam’s swaps').startsWith('Panini World Cup 2026 swaps — Sam’s swaps (7):'));
+
 console.log('all parse/catalog tests passed');
