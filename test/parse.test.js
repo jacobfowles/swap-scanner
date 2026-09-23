@@ -1,6 +1,6 @@
 // Run with: node test/parse.test.js
 const assert = require('assert');
-const { parseCodeLine } = require('../js/parse.js');
+const { parseCodeLine, bestCode, POSITION_LETTERS } = require('../js/parse.js');
 const Catalog = require('../js/catalog.js');
 
 // Label text as read off real sticker backs, plus position-corrected misreads.
@@ -28,6 +28,16 @@ const bad = [
   'NZL  3', 'NZL-3', 'MEX 21', 'MEX 0', 'FWC 20', 'ABC 5', 'SUI', 'FIFA WORLD CUP 2026',
 ];
 for (const text of bad) assert.strictEqual(parseCodeLine(text).confident, false, JSON.stringify(text));
+
+// Code-constrained letter decoding (real CIV 15 photo: the C glyph was read
+// as "GC" with G 92 / C 98; the I is a detected bar).
+assert.strictEqual(bestCode([{ G: 92, C: 98 }, { I: 100 }, { V: 92 }]), 'CIV');
+assert.strictEqual(bestCode([{ G: 92, C: 79 }, { I: 100 }, { V: 92 }]), 'CIV');   // GIV isn't a code
+assert.strictEqual(bestCode([{ G: 92 }, { I: 100 }, { V: 92 }]), null);           // C never considered
+assert.strictEqual(bestCode([{ E: 90 }, { S: 95 }, { P: 97 }]), 'ESP');
+assert.strictEqual(bestCode([{ N: 90 }, { Z: 20, L: 60 }, { L: 90 }]), 'NZL');
+// Letters possible at each position come from the real codes only.
+assert.ok(!POSITION_LETTERS[0].includes('V') && POSITION_LETTERS[2].includes('V'));
 
 // CSV round trip, album order.
 const items = { 'ARG 7': 2, 'MEX 12': 1, 'FWC 3': 1, 'MEX 2': 3 };

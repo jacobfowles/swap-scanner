@@ -1,6 +1,6 @@
 (function () {
   const { TEAMS, BY_CODE } = window.PaniniTeams;
-  const { parseCodeLine, inRange } = window.PaniniParse;
+  const { parseCodeLine, inRange, bestCode, POSITION_LETTERS } = window.PaniniParse;
   const Catalog = window.PaniniCatalog;
   const { prepareForOcr, findCodePill, clearBorder, isolateText, splitCode, isBar } = window.PaniniPreprocess;
 
@@ -213,45 +213,73 @@
   }
 
   const LINE = { tessedit_pageseg_mode: '7', tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ' };
-  const LETTERS = { tessedit_pageseg_mode: '8', tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' };
-  const LETTER = { tessedit_pageseg_mode: '10', tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' };
+  const CODE_LETTERS = [...new Set(POSITION_LETTERS.join(''))].sort().join('');
+  const LETTERS = { tessedit_pageseg_mode: '8', tessedit_char_whitelist: CODE_LETTERS };
+  // One letter glyph at code position i: only letters that occur there.
+  const letterParams = i => ({ tessedit_pageseg_mode: '10', tessedit_char_whitelist: POSITION_LETTERS[i] });
   const DIGITS = { tessedit_pageseg_mode: '8', tessedit_char_whitelist: '0123456789' };
 
   async function ocr(worker, canvas, params, tag) {
+    return (await ocrSymbols(worker, canvas, params, tag)).text;
+  }
+
+  // OCR returning the text plus, per recognised character, every letter the
+  // engine considered with its confidence: [{ A: 92, ... }, ...].
+  async function ocrSymbols(worker, canvas, params, tag) {
     await worker.setParameters(params);
-    const { data } = await worker.recognize(canvas);
-    if (window.__scanDebug) window.__scanDebug.push({ mode: tag, text: data.text, png: canvas.toDataURL() });
-    return data.text.trim();
+    const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
+    const symbols = [];
+    for (const b of data.blocks || []) for (const p of b.paragraphs) for (const l of p.lines) for (const w of l.words) {
+      for (const sym of w.symbols) {
+        const m = {};
+        for (const c of [{ text: sym.text, confidence: sym.confidence }, ...sym.choices]) {
+          if (c.text && c.confidence > (m[c.text] ?? -1)) m[c.text] = c.confidence;
+        }
+        symbols.push(m);
+      }
+    }
+    if (window.__scanDebug) window.__scanDebug.push({ mode: tag, t: Math.round(performance.now()), text: data.text + ' ' + JSON.stringify(symbols), png: canvas.toDataURL() });
+    return { text: data.text.trim(), symbols };
   }
 
   // Read one rendering of the label. Preferred: split it at the space and
-  // read the letters (A-Z only) and the number (0-9 only) separately. With
-  // three separate letter glyphs each is read on its own, and a plain bar is
-  // taken as I (the I in CIV/BIH/SUI is otherwise often dropped). The digit
-  // count must match the digit glyphs. If it can't be split cleanly, read it
-  // as one line.
+  // read the letters and the number (0-9 only) separately. Each letter glyph
+  // is read on its own, limited to the letters that occur at that position
+  // in a real code, and a plain bar is taken as I (OCR drops it: CIV, BIH,
+  // SUI...). The code is then the real code that best matches every letter
+  // the OCR considered — "G or C", "I", "V" gives CIV. The digit count must
+  // match the digit glyphs. If the label can't be split, read it as a line.
   async function readLabel(worker, rect, height) {
     const label = labelCanvas(rect, height);
     const parts = splitCode(label.getContext('2d').getImageData(0, 0, label.width, label.height));
     if (parts) {
       const { top, bottom } = parts;
       const gap = Math.round((bottom - top + 1) * 0.3);
-      let letters = '';
+      let scores = null;
       if (parts.letters.length === 3) {
         const letterHeight = Math.max(...parts.letters.map(r => r.y1 - r.y0 + 1));
-        for (const run of parts.letters) {
-          letters += isBar(run, letterHeight)
-            ? 'I'
-            : (await ocr(worker, composeRuns(label, [run], top, bottom, gap), LETTER, 'letter' + height)).replace(/\s/g, '').slice(0, 1);
+        scores = [];
+        for (const [i, run] of parts.letters.entries()) {
+          if (isBar(run, letterHeight)) { scores.push({ I: 100 }); continue; }
+          const { symbols } = await ocrSymbols(worker, composeRuns(label, [run], top, bottom, gap), letterParams(i), 'letter' + height);
+          // A glyph read as two characters ("GC"): pool what was considered.
+          const pooled = {};
+          for (const m of symbols) for (const [ch, c] of Object.entries(m)) pooled[ch] = Math.max(pooled[ch] ?? -1, c);
+          scores.push(pooled);
         }
       } else {
-        letters = (await ocr(worker, composeRuns(label, parts.letters, top, bottom, gap), LETTERS, 'letters' + height)).replace(/\s/g, '');
+        // Touching letters: read the group as a word; usable if it gives 3.
+        const { symbols } = await ocrSymbols(worker, composeRuns(label, parts.letters, top, bottom, gap), LETTERS, 'letters' + height);
+        if (symbols.length === 3) scores = symbols;
       }
-      const digits = (await ocr(worker, composeRuns(label, parts.digits, top, bottom, gap), DIGITS, 'digits' + height)).replace(/\s/g, '');
-      // Two separate digit glyphs must give two digits (and one, one).
-      const digitsOk = parts.digits.length > 2 || digits.length === parts.digits.length || parts.digits.length === 1;
-      const r = parseCodeLine(`${letters} ${digits}`);
-      if (r.confident && digitsOk) return r;
+      const code = scores && bestCode(scores);
+      if (code) {
+        const digits = (await ocr(worker, composeRuns(label, parts.digits, top, bottom, gap), DIGITS, 'digits' + height)).replace(/\s/g, '');
+        // Two separate digit glyphs must give two digits (and one, one).
+        const digitsOk = parts.digits.length > 2 || parts.digits.length === 1 || digits.length === parts.digits.length;
+        const r = parseCodeLine(`${code} ${digits}`);
+        if (r.confident && digitsOk) return r;
+      }
     }
     const pad = 20;
     const line = document.createElement('canvas');
@@ -280,7 +308,7 @@
     if (pill && Math.abs(pill.skew) > MAX_SKEW_DEG) return { ...none, reason: 'skewed', skew: pill.skew };
 
     const passes = [];
-    if (pill) for (const h of [120, 80, 60]) passes.push({ rect: pill.rect, h });
+    if (pill) for (const h of [120, 150, 100]) passes.push({ rect: pill.rect, h });
     // A box drawn tight around (or inside) the label: read the whole box too.
     if (custom) passes.push({ rect: guide, h: 120 });
     if (!passes.length) return { ...none, reason: 'no-label' };

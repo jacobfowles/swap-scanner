@@ -26,6 +26,18 @@ assert.strictEqual(parts.digits.length, 1);
 const letterHeight = Math.max(...parts.letters.map(r => r.y1 - r.y0 + 1));
 assert.deepStrictEqual(parts.letters.map(r => isBar(r, letterHeight)), [false, true, false]);
 
+// A thin I touching the V: two letter runs get cut back into three.
+const touching = splitCode(image(200, 60, [
+  [10, 10, 34, 13], [10, 10, 13, 49], [10, 46, 34, 49],   // C
+  [42, 10, 45, 49], [46, 30, 50, 32],                     // I, joined to the V by a sliver
+  [51, 10, 54, 49], [70, 10, 73, 49], [51, 46, 73, 49],   // V-ish
+  [110, 10, 130, 49],                                     // 2
+]));
+assert.ok(touching);
+assert.strictEqual(touching.letters.length, 3);
+const th = Math.max(...touching.letters.map(r => r.y1 - r.y0 + 1));
+assert.strictEqual(isBar(touching.letters[1], th), true);
+
 // No clear space between letters and number: can't split.
 assert.strictEqual(splitCode(image(200, 60, [[10, 10, 30, 49], [40, 10, 60, 49], [70, 10, 90, 49]])), null);
 

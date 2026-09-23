@@ -75,9 +75,13 @@ into clean black-on-white text and reads it as one line.
   number that exists for that team. Where a letter must be, a misread `0` is
   taken as `O` (and `O` as `0` where a digit must be), and so on.
 - The label is split at the space: the three letters are read one by one
-  (A–Z only) and the number separately (0–9 only). A plain vertical bar is
-  taken as the letter I, which OCR otherwise tends to drop (CIV, BIH, SUI,
-  IRN, IRQ).
+  and the number separately (0–9 only). Each letter is limited to the
+  letters that actually occur at that position in the 49 codes, and the
+  result is the real code that best matches every letter the reader
+  considered (a C read as "G or C" still gives CIV, since GIV isn't a code).
+- A plain vertical bar is taken as the letter I, which OCR otherwise tends
+  to drop (CIV, BIH, SUI, IRN, IRQ); a thin I touching its neighbour is cut
+  apart first.
 - Each scan reads the label at a few sizes and is only *sure* when two reads
   agree; otherwise it asks you to check. Auto-add only uses sure reads.
 - A card tilted more than 4° is rejected with a prompt to straighten it and

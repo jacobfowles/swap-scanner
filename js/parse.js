@@ -32,7 +32,28 @@
     return { code, number, confident: true };
   }
 
-  const api = { parseCodeLine, inRange };
+  // Letters that can appear at each position of a code (from the 49 codes).
+  const POSITION_LETTERS = [0, 1, 2].map(i =>
+    [...new Set(Teams.TEAMS.map(t => t.code[i]))].sort().join(''));
+
+  // Pick the real code that best matches per-letter OCR guesses. `scores` is
+  // three maps of letter -> confidence (0-100), one per position, holding
+  // every letter the OCR considered. A code is only a candidate if each of
+  // its letters was considered at its position; the highest total wins.
+  function bestCode(scores) {
+    let best = null;
+    for (const { code } of Teams.TEAMS) {
+      let total = 0;
+      for (let i = 0; i < 3 && total >= 0; i++) {
+        const c = scores[i][code[i]];
+        total = c === undefined ? -1 : total + c;
+      }
+      if (total >= 0 && (!best || total > best.total)) best = { code, total };
+    }
+    return best ? best.code : null;
+  }
+
+  const api = { parseCodeLine, inRange, bestCode, POSITION_LETTERS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PaniniParse = api;
 })(this);

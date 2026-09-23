@@ -237,30 +237,36 @@
   // is fine — each part is read as a word.
   function splitCode(img) {
     const { width: w, height: h, data: px } = img;
-    const colDark = new Uint8Array(w);
+    const dark = (x, y) => px[(y * w + x) * 4] < 128;
+    const colInk = new Uint32Array(w);
     let top = h, bottom = -1;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
-        if (px[(y * w + x) * 4] < 128) {
-          colDark[x] = 1;
+        if (dark(x, y)) {
+          colInk[x]++;
           if (y < top) top = y;
           if (y > bottom) bottom = y;
         }
       }
     }
+    // Vertical extent, ink count and widest inked row of columns x0..x1.
+    const stats = (x0, x1) => {
+      let y0 = h, y1 = -1, ink = 0, rowMax = 0;
+      for (let y = 0; y < h; y++) {
+        let row = 0;
+        for (let x = x0; x <= x1; x++) if (dark(x, y)) row++;
+        if (row) { if (y < y0) y0 = y; y1 = y; }
+        ink += row;
+        if (row > rowMax) rowMax = row;
+      }
+      return { x0, x1, y0, y1, ink, rowMax };
+    };
     const runs = [];
     for (let x = 0; x < w; x++) {
-      if (!colDark[x]) continue;
+      if (!colInk[x]) continue;
       const x0 = x;
-      while (x < w && colDark[x]) x++;
-      // Vertical extent and ink count of this glyph column run.
-      let y0 = h, y1 = -1, ink = 0;
-      for (let y = 0; y < h; y++) {
-        for (let xx = x0; xx < x; xx++) {
-          if (px[(y * w + xx) * 4] < 128) { ink++; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-        }
-      }
-      runs.push({ x0, x1: x - 1, y0, y1, ink });
+      while (x < w && colInk[x]) x++;
+      runs.push(stats(x0, x - 1));
     }
     if (runs.length < 2 || bottom < 0) return null;
     let split = 1, widest = -1;
@@ -271,15 +277,33 @@
     // The space must stand out from the gaps between letters.
     const others = runs.slice(1).map((r, i) => r.x0 - runs[i].x1).filter((g, i) => i + 1 !== split);
     if (others.length && widest < 1.5 * Math.max(...others)) return null;
-    return { top, bottom, letters: runs.slice(0, split), digits: runs.slice(split) };
+    let letters = runs.slice(0, split);
+    // Two letters touching (a thin I against its neighbour) leave two runs
+    // for three letters: cut the wider run at its thinnest column.
+    if (letters.length === 2) {
+      const i = letters[0].x1 - letters[0].x0 >= letters[1].x1 - letters[1].x0 ? 0 : 1;
+      const r = letters[i], width = r.x1 - r.x0 + 1;
+      let cut = -1;
+      for (let x = r.x0 + Math.floor(width * 0.2); x <= r.x0 + Math.ceil(width * 0.8); x++) {
+        if (cut < 0 || colInk[x] < colInk[cut]) cut = x;
+      }
+      if (cut > r.x0 && cut < r.x1) {
+        const pieces = [stats(r.x0, cut - 1), stats(cut + 1, r.x1)];
+        letters = i === 0 ? [...pieces, letters[1]] : [letters[0], ...pieces];
+      }
+    }
+    return { top, bottom, letters, digits: runs.slice(split) };
   }
 
-  // Is this glyph run a capital I? In the label font it is a plain solid bar:
-  // much taller than wide, almost fully inked, full letter height. OCR can't
-  // read a lone bar reliably, and no other capital looks like one.
+  // Is this glyph run a capital I? In the label font it is a plain bar: a
+  // thin stroke of even thickness, full letter height, with no horizontal
+  // parts (unlike L, J or T). Thickness is measured per row (ink / height),
+  // so a slightly slanted bar still counts. OCR can't read a lone bar
+  // reliably, and no other capital looks like one.
   function isBar(run, letterHeight) {
-    const w = run.x1 - run.x0 + 1, h = run.y1 - run.y0 + 1;
-    return w / h < 0.3 && run.ink / (w * h) > 0.8 && h > 0.8 * letterHeight;
+    const h = run.y1 - run.y0 + 1;
+    const thickness = run.ink / h;
+    return thickness / h < 0.25 && run.rowMax <= 1.8 * thickness && h > 0.75 * letterHeight;
   }
 
   const api = { prepareForOcr, otsu, findCodePill, clearBorder, isolateText, splitCode, isBar };
