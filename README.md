@@ -25,8 +25,8 @@ and open <http://localhost:8000/panini/>.
 
 ## Using it
 
-- **Scan** — tap *Start camera*, fit the back of the sticker in the box, tap
-  *Scan*. Check the team and number, set *How many* if you have several of that
+- **Scan** — tap *Start camera*, fit the back of the sticker in the box
+  (straight, not tilted), tap *Scan*. Check the team and number, set *How many* if you have several of that
   one, and tap *Add*. Good light helps a lot; the 🔦 button turns on the
   flashlight on phones that support it.
 - **Scan area** — for a scanner stand: tap *Scan area*, drag a box on the
@@ -50,11 +50,19 @@ and open <http://localhost:8000/panini/>.
 ## How the reading works
 
 The code is printed in white inside a dark rounded label at the top right of
-every sticker back (e.g. `NZL 3`). The app finds that label in the frame,
-straightens it if the card is tilted, turns it into clean black-on-white text
-and reads it as one line. Each scan reads it at a few sizes and only counts as
-sure when two reads agree; otherwise it asks you to check. If no label is
-found it falls back to reading the top-right corner, then the whole card.
+every sticker back, and it is always three capital letters followed by a one-
+or two-digit number (`NZL 3`, `ESP 19`). The app finds that label, turns it
+into clean black-on-white text and reads it as one line.
+
+- A read only counts if it is exactly that format, a real team code and a
+  number that exists for that team. Where a letter must be, a misread `0` is
+  taken as `O` (and `O` as `0` where a digit must be), and so on.
+- Each scan reads the label at a few sizes and is only *sure* when two reads
+  agree; otherwise it asks you to check. Auto-add only uses sure reads.
+- A card tilted more than 4° is rejected with a prompt to straighten it and
+  scan again — nothing is guessed. (Draw the scan area with a little margin
+  around the label so the tilt can be measured.)
+- If the label isn't found or can't be read, you're asked to rescan.
 
 ## The album
 

@@ -146,7 +146,8 @@
         if (py < h - 1 && closed[p + w] && !label[p + w]) { label[p + w] = next; stack.push(p + w); }
       }
       // Orientation and true length/width from second moments, so a tilted
-      // card still qualifies (its bounding box would look too square).
+      // label is still recognised (and can be rejected as skewed by the
+      // caller) instead of being missed because its bounding box looks square.
       const cx = sx / area, cy = sy / area;
       const vxx = sxx / area - cx * cx, vyy = syy / area - cy * cy, vxy = sxy / area - cx * cy;
       const angle = 0.5 * Math.atan2(2 * vxy, vxx - vyy);

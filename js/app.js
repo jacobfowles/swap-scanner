@@ -1,6 +1,6 @@
 (function () {
   const { TEAMS, BY_CODE } = window.PaniniTeams;
-  const { parseCardText, inRange } = window.PaniniParse;
+  const { parseCodeLine, inRange } = window.PaniniParse;
   const Catalog = window.PaniniCatalog;
   const { prepareForOcr, findCodePill, clearBorder, isolateText } = window.PaniniPreprocess;
 
@@ -143,36 +143,18 @@
   }
 
   // Draw a rectangle of the current frame onto the work canvas at `targetW`
-  // pixels wide; return its
-  // pixels. A rect with an `angle` (centre cx, cy) is cut out straightened.
+  // pixels wide; return its pixels.
   function grab(rect, targetW) {
     const k = targetW / rect.w;
     const canvas = $('work');
     canvas.width = Math.max(1, Math.round(rect.w * k));
     canvas.height = Math.max(1, Math.round(rect.h * k));
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (rect.angle) {
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.translate(canvas.width / 2, canvas.height / 2);
-      ctx.rotate(-rect.angle);
-      ctx.scale(k, k);
-      ctx.translate(-rect.cx, -rect.cy);
-      ctx.drawImage(video, 0, 0);
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-    } else {
-      ctx.drawImage(video, rect.x, rect.y, rect.w, rect.h, 0, 0, canvas.width, canvas.height);
-    }
+    ctx.drawImage(video, rect.x, rect.y, rect.w, rect.h, 0, 0, canvas.width, canvas.height);
     return { canvas, ctx, img: ctx.getImageData(0, 0, canvas.width, canvas.height) };
   }
 
-  function prepared(rect, targetW, mode) {
-    const { canvas, ctx, img } = grab(rect, targetW);
-    ctx.putImageData(prepareForOcr(img, mode), 0, 0);
-    return canvas;
-  }
-
-  // The pill as dark text on white: `height` px tall (Tesseract reads text
+  // The label as dark text on white: `height` px tall (Tesseract reads text
   // best around 40-60px high) with a white margin.
   function pillCanvas(rect, height) {
     const { canvas, ctx, img } = grab(rect, height * rect.w / rect.h);
@@ -188,74 +170,74 @@
     return out;
   }
 
+  // Cards tilted more than this are rejected rather than straightened.
+  const MAX_SKEW_DEG = 4;
+
   // The code is printed in white inside a dark pill at the top right of the
-  // sticker back. Find that pill and read it as a single line; otherwise
-  // fall back to the top-right corner and then the whole card.
-  function findPillRect(guide, opts) {
+  // sticker back. Find it in the scan area: returns { rect, skew } (skew in
+  // degrees) or null.
+  function findPill(guide, opts) {
     const small = grab(guide, 320);
     const p = findCodePill(small.img, opts);
     if (!p) return null;
     const k = guide.w / small.canvas.width;
     const pad = p.thick * 0.25;
-    const w = (p.len + 2 * pad) * k, h = (p.thick + 2 * pad) * k;
-    const cx = guide.x + (p.cx + 0.5) * k, cy = guide.y + (p.cy + 0.5) * k;
-    // Straighten only noticeably tilted labels; the rest is a plain crop.
-    if (Math.abs(p.angle) > 0.02) return { x: cx - w / 2, y: cy - h / 2, w, h, cx, cy, angle: p.angle };
-    const x = Math.max(0, cx - w / 2), y = Math.max(0, cy - h / 2);
-    return { x, y, w: Math.min(video.videoWidth - x, w), h: Math.min(video.videoHeight - y, h) };
+    const x = Math.max(0, guide.x + (p.x - pad) * k), y = Math.max(0, guide.y + (p.y - pad) * k);
+    const rect = {
+      x, y,
+      w: Math.min(video.videoWidth - x, (p.w + 2 * pad) * k),
+      h: Math.min(video.videoHeight - y, (p.h + 2 * pad) * k),
+    };
+    return { rect, skew: p.angle * 180 / Math.PI };
   }
 
   const LINE = { tessedit_pageseg_mode: '7', tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ' };
-  const SPARSE = { tessedit_pageseg_mode: '11', tessedit_char_whitelist: '' };
 
-  // Reads the frame several ways (the label at different sizes, then wider
-  // areas) and stops once two reads agree. `sure` means they agreed; a lone
-  // read is still returned for the user to check, but auto-add ignores it.
+  // Reads the label at a few sizes and stops once two reads agree. Returns
+  // { code, number, confident, sure, reason }: `sure` means two reads agreed
+  // (a lone read is offered for checking, auto-add ignores it); when nothing
+  // was read, `reason` is 'no-label', 'skewed' (with `skew`) or 'unreadable'.
   async function scanOnce() {
     const worker = await getWorker();
+    const none = { code: null, number: null, confident: false, sure: false };
     const guide = guideRect();
-    if (!guide) return { ...parseCardText(''), rawText: '' };
+    if (!guide) return { ...none, reason: 'no-label' };
 
     const custom = !!state.area;
+    const pill = findPill(guide, custom ? { maxWidth: 1 } : undefined);
+    if (window.__scanDebug && pill) window.__scanDebug.push({ mode: 'skew', text: pill.skew.toFixed(2) });
+    if (pill && Math.abs(pill.skew) > MAX_SKEW_DEG) return { ...none, reason: 'skewed', skew: pill.skew };
+
     const passes = [];
-    const pill = findPillRect(guide, custom ? { maxWidth: 1 } : undefined);
-    if (pill) {
-      for (const h of [120, 80, 60]) passes.push({ canvas: () => pillCanvas(pill, h), params: LINE, mode: 'pill' + h });
-    }
-    if (custom) {
-      // A box drawn tight around the label: treat the whole box as the label.
-      passes.push({ canvas: () => pillCanvas(guide, 120), params: LINE, mode: 'area-line' });
-    } else {
-      const corner = { x: guide.x + guide.w * 0.3, y: guide.y, w: guide.w * 0.7, h: guide.h * 0.3 };
-      passes.push({ canvas: () => prepared(corner, 1000, 'auto'), params: SPARSE, mode: 'corner' });
-    }
-    passes.push({ canvas: () => prepared(guide, 1400, 'auto'), params: SPARSE, mode: 'area' });
+    if (pill) for (const h of [120, 80, 60]) passes.push({ rect: pill.rect, h });
+    // A box drawn tight around (or inside) the label: read the whole box too.
+    if (custom) passes.push({ rect: guide, h: 120 });
+    if (!passes.length) return { ...none, reason: 'no-label' };
 
     const votes = new Map();
-    let first = null, hint = null, rawText = '';
+    let first = null;
     for (const pass of passes) {
-      const canvas = pass.canvas();
-      await worker.setParameters(pass.params);
+      const canvas = pillCanvas(pass.rect, pass.h);
+      await worker.setParameters(LINE);
       const { data } = await worker.recognize(canvas);
-      rawText += data.text + '\n';
-      if (window.__scanDebug) window.__scanDebug.push({ mode: pass.mode, text: data.text, png: canvas.toDataURL() });
-      const r = parseCardText(data.text);
-      if (r.confident) {
-        const id = Catalog.stickerId(r.code, r.number);
-        votes.set(id, (votes.get(id) || 0) + 1);
-        if (!first) first = r;
-        if (votes.get(id) >= 2) return { ...r, sure: true, rawText };
-      } else if (!hint && r.code) {
-        hint = r;
-      }
+      if (window.__scanDebug) window.__scanDebug.push({ mode: 'h' + pass.h, text: data.text, png: canvas.toDataURL() });
+      const r = parseCodeLine(data.text);
+      if (!r.confident) continue;
+      const id = Catalog.stickerId(r.code, r.number);
+      votes.set(id, (votes.get(id) || 0) + 1);
+      if (!first) first = r;
+      if (votes.get(id) >= 2) return { ...r, sure: true };
     }
-    if (first) {
-      // No agreement: offer the most common read, flagged for checking.
-      const [topId] = [...votes].sort((x, y) => y[1] - x[1])[0];
-      const { code, number } = Catalog.splitId(topId);
-      return { ...first, code, number, sure: false, rawText };
+    if (!first) return { ...none, reason: 'unreadable' };
+    return { ...first, sure: false };
+  }
+
+  function rescanMessage(r) {
+    if (r.reason === 'skewed') {
+      return `The card is crooked (about ${Math.round(Math.abs(r.skew))}°). Straighten it and scan again.`;
     }
-    return { ...(hint || parseCardText('')), sure: false, rawText };
+    if (r.reason === 'no-label') return "Couldn't find the code label. Line the sticker up in the box and scan again.";
+    return "Couldn't read the code. Check the light (no glare), hold steady and scan again.";
   }
 
   function setGuide(cls) {
@@ -271,18 +253,17 @@
     setStatus('Reading…');
     try {
       const r = await scanOnce();
-      if (r.code) {
+      if (r.confident) {
         setGuide('hit');
-        setStatus(r.confident ? `Read ${r.code} ${r.number}.` : `Found ${BY_CODE[r.code].name} — check the number.`);
+        setStatus(r.sure ? `Read ${r.code} ${r.number}.` : `Read ${r.code} ${r.number} — please check it.`);
+        openSheet(r);
       } else {
         setGuide(null);
-        setStatus("Couldn't read a sticker code. Try more light, hold steady, or type it in.");
+        setStatus(rescanMessage(r));
       }
-      openSheet(r);
     } catch (e) {
       setGuide(null);
       setStatus('The text reader is not available. You can type stickers in.');
-      openSheet({});
     } finally {
       state.scanning = false;
       $('scan-btn').disabled = !state.stream;
@@ -310,6 +291,13 @@
   }
 
   function handleAutoRead(r) {
+    if (r && r.reason === 'skewed') {
+      // The card is there, just crooked: not a "card removed" frame.
+      setGuide(null);
+      state.lastRead = null;
+      setStatus(rescanMessage(r));
+      return;
+    }
     const id = r && r.confident ? Catalog.stickerId(r.code, r.number) : null;
     if (!id) {
       // Nothing readable: after two such frames the card has left the box.
@@ -355,10 +343,9 @@
     $('sheet-number').value = r.number ?? '';
     $('sheet-qty').value = 1;
     $('sheet-error').textContent = '';
-    const raw = (r.rawText || '').replace(/\s+/g, ' ').trim();
     $('sheet-read').textContent = r.code
-      ? (r.confident && r.sure !== false ? 'Check it, then add.' : 'Not completely sure about this one — please check.')
-      : (raw ? 'Could not find a code. Pick the team and number.' : 'Pick the team and number.');
+      ? (r.sure ? 'Check it, then add.' : 'Not completely sure about this one — please check.')
+      : 'Pick the team and number.';
     $('sheet-title').textContent = r.code && r.number !== null && r.number !== undefined
       ? `Add ${r.code} ${r.number}` : 'Add sticker';
     updateSheetInfo();

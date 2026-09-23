@@ -1,45 +1,33 @@
 // Run with: node panini/test/parse.test.js
 const assert = require('assert');
-const { parseCardText } = require('../js/parse.js');
+const { parseCodeLine } = require('../js/parse.js');
 const Catalog = require('../js/catalog.js');
 
-const cases = [
-  ['MEX 12', 'MEX', 12],
-  ['MEX12', 'MEX', 12],
-  ['NZL 3', 'NZL', 3],             // real sticker back
-  ['(CNZL3)', 'NZL', 3],           // pill edge read as "(C"
-  ['FIFA WORLD CUP 2026 | NZL 3 +', 'NZL', 3],
-  ['ARG 1O', 'ARG', 10],          // O read instead of 0
-  ['8RA 7', 'BRA', 7],            // 8 read instead of B
+// Label text as read off real sticker backs, plus position-corrected misreads.
+const good = [
+  ['NZL 3', 'NZL', 3],
+  ['ESP 19', 'ESP', 19],
+  ['JOR 11', 'JOR', 11],
+  ['MEX12', 'MEX', 12],            // space missed
+  [' KOR 13 \n', 'KOR', 13],        // surrounding whitespace
+  ['ARG 1O', 'ARG', 10],           // O where a digit must be
+  ['8RA 7', 'BRA', 7],             // 8 where a letter must be
   ['FWC 00', 'FWC', 0],
   ['FWC 19', 'FWC', 19],
-  ['CUW-5', 'CUW', 5],
-  ['© 2026 Panini S.p.A. www.panini.com\nKOR 13\nKorea Republic', 'KOR', 13],
-  ['PANINI FIFA WORLD CUP 2026\nUSA 20', 'USA', 20],
-  ['Brazil\nno 4 BRA 4', 'BRA', 4],
+  ['CUW 20', 'CUW', 20],
 ];
-for (const [text, code, number] of cases) {
-  const r = parseCardText(text);
-  assert.strictEqual(r.code, code, `${JSON.stringify(text)} -> code ${r.code}`);
-  assert.strictEqual(r.number, number, `${JSON.stringify(text)} -> number ${r.number}`);
-  assert.ok(r.confident, `${JSON.stringify(text)} should be confident`);
+for (const [text, code, number] of good) {
+  const r = parseCodeLine(text);
+  assert.deepStrictEqual([r.code, r.number, r.confident], [code, number, true], JSON.stringify(text));
 }
 
-// Out of range / non-codes are rejected.
-assert.strictEqual(parseCardText('MEX 21').code, null);
-assert.strictEqual(parseCardText('FWC 20').code, null);
-assert.strictEqual(parseCardText('THE 12').code, null);
-assert.strictEqual(parseCardText('').code, null);
-assert.strictEqual(parseCardText('mex 12').code, null);          // codes are printed in capitals
-assert.strictEqual(parseCardText('Redd Sen TT BRAK').code, null); // OCR noise seen on a real card
-// Every sticker back says this; it must not suggest the FWC specials.
-assert.strictEqual(parseCardText('FIFA WORLD CUP 2026\nV.le Emilio Po 380 - 41126 Modena').code, null);
-
-// Team name only -> not confident, team suggested.
-const hint = parseCardText('ARGENTINA\n7');
-assert.strictEqual(hint.code, 'ARG');
-assert.strictEqual(hint.number, 7);
-assert.strictEqual(hint.confident, false);
+// Anything that isn't exactly 3 capitals + 1-2 digits, a real code and an
+// in-range number is rejected.
+const bad = [
+  '', 'NZL', 'NZL 123', 'NL 3', 'CNZL3', '(NZL 3)', 'NZL 3 +', 'nzl 3', 'Nzl 3',
+  'NZL  3', 'NZL-3', 'MEX 21', 'MEX 0', 'FWC 20', 'ABC 5', 'SUI', 'FIFA WORLD CUP 2026',
+];
+for (const text of bad) assert.strictEqual(parseCodeLine(text).confident, false, JSON.stringify(text));
 
 // CSV round trip, album order.
 const items = { 'ARG 7': 2, 'MEX 12': 1, 'FWC 3': 1, 'MEX 2': 3 };
