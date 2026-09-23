@@ -51,7 +51,9 @@ and open <http://localhost:8000/>.
     the camera view. It stays until the next card comes in.
   - **Crooked card:** a low buzz (once) and an orange **Straighten the card**
     banner.
-  Untick *Sound* to go silent (Android phones also vibrate).
+  Untick *Sound* to go silent (Android phones also vibrate). Sound plays even
+  with an iPhone's silent switch on; the volume buttons set how loud. Sound is
+  switched on by your first tap in the app (browsers require that).
 - **Type it in** — for anything the camera struggles with.
 - **Undo** — every add shows a toast with *Undo* for a few seconds.
 - **Catalog** — spares grouped by team in album order, with +/− buttons and a

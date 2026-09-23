@@ -337,7 +337,10 @@
   }
 
   setInterval(() => { if (state.auto && state.stream && $('area-editor').hidden) sampleMotion(); }, 100);
-  document.addEventListener('pointerdown', () => { motion.ignoreUntil = performance.now() + 1000; }, true);
+  document.addEventListener('pointerdown', () => {
+    motion.ignoreUntil = performance.now() + 1000;
+    armSounds();
+  }, true);
 
   function lockOn(id) {
     state.lockedId = id;
@@ -478,31 +481,75 @@
   // For batch scanning from a stand: a sound plus a big banner on the camera
   // view, so you can tell from a glance (or without looking) when to swap in
   // the next sticker.
-  let audio = null;
-  function unlockAudio() {
-    // Browsers (iOS especially) only allow sound after a tap; call from one.
-    try {
-      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
-      if (audio.state === 'suspended') audio.resume();
-    } catch (e) { audio = null; }
+  //
+  // The beeps are rendered once into tiny WAV clips and played through
+  // <audio> elements, not synthesised live with Web Audio: on iPhones Web
+  // Audio is muted by the ring/silent switch, and it's suspended when the
+  // camera starts and only resumes on a tap — which never comes in auto-scan.
+  // An <audio> element that has been played once from a tap can be replayed
+  // any time afterwards.
+  const SOUNDS = {
+    ok: { notes: [[880, 0, 0.09], [1320, 0.1, 0.16]], wave: 'sine', volume: 0.9 },
+    warn: { notes: [[220, 0, 0.14], [196, 0.18, 0.22]], wave: 'square', volume: 0.35 },
+  };
+  const players = {};
+
+  function renderWav({ notes, wave, volume }) {
+    const rate = 22050;
+    const total = Math.max(...notes.map(([, start, len]) => start + len)) + 0.05;
+    const n = Math.ceil(rate * total);
+    const samples = new Float32Array(n);
+    for (const [freq, start, len] of notes) {
+      for (let i = Math.floor(start * rate); i < Math.min(n, (start + len) * rate); i++) {
+        const t = i / rate - start;
+        const env = Math.min(1, t / 0.005) * (1 - t / len) ** 2;
+        const osc = Math.sin(2 * Math.PI * freq * t);
+        samples[i] += (wave === 'square' ? Math.sign(osc) : osc) * env * volume;
+      }
+    }
+    const buf = new DataView(new ArrayBuffer(44 + n * 2));
+    const str = (o, text) => { for (let i = 0; i < text.length; i++) buf.setUint8(o + i, text.charCodeAt(i)); };
+    str(0, 'RIFF'); buf.setUint32(4, 36 + n * 2, true); str(8, 'WAVE');
+    str(12, 'fmt '); buf.setUint32(16, 16, true); buf.setUint16(20, 1, true); buf.setUint16(22, 1, true);
+    buf.setUint32(24, rate, true); buf.setUint32(28, rate * 2, true); buf.setUint16(32, 2, true); buf.setUint16(34, 16, true);
+    str(36, 'data'); buf.setUint32(40, n * 2, true);
+    for (let i = 0; i < n; i++) buf.setInt16(44 + i * 2, Math.max(-1, Math.min(1, samples[i])) * 32767, true);
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  }
+
+  // Call from a tap: creates the players and plays each one silently once,
+  // which is what lets iOS play them later without a tap.
+  function armSounds() {
+    for (const kind of Object.keys(SOUNDS)) {
+      let p = players[kind];
+      if (!p) {
+        p = players[kind] = new Audio(renderWav(SOUNDS[kind]));
+        p.preload = 'auto';
+        p.armed = false;
+      }
+      if (p.armed || p.arming) continue;
+      p.arming = true;
+      p.muted = true;
+      p.ready = p.play().then(() => {
+        p.pause();
+        p.currentTime = 0;
+        p.armed = true;
+      }, () => {}).finally(() => {
+        p.muted = false;
+        p.arming = false;
+      });
+    }
   }
 
   function beep(kind) {
     if (navigator.vibrate) navigator.vibrate(kind === 'ok' ? 80 : [60, 60, 60]);
-    if (!$('sound').checked || !audio) return;
-    const notes = kind === 'ok' ? [[880, 0, 0.09], [1320, 0.1, 0.14]] : [[220, 0, 0.12], [196, 0.16, 0.2]];
-    const t0 = audio.currentTime + 0.01;
-    for (const [freq, start, len] of notes) {
-      const osc = audio.createOscillator(), gain = audio.createGain();
-      osc.type = kind === 'ok' ? 'sine' : 'square';
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.0001, t0 + start);
-      gain.gain.exponentialRampToValueAtTime(kind === 'ok' ? 0.4 : 0.15, t0 + start + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + start + len);
-      osc.connect(gain).connect(audio.destination);
-      osc.start(t0 + start);
-      osc.stop(t0 + start + len + 0.02);
-    }
+    const p = players[kind];
+    if (!$('sound').checked || !p) return;
+    // Wait for a silent arming play still in flight, or it would cut this off.
+    (p.ready || Promise.resolve()).then(() => {
+      p.currentTime = 0;
+      return p.play();
+    }).catch(() => {});
   }
 
   function showBanner(kind, main, sub) {
@@ -731,18 +778,18 @@
   });
 
   // --------------------------------------------------------------- wiring --
-  $('start-camera').addEventListener('click', () => { unlockAudio(); startCamera(); });
+  $('start-camera').addEventListener('click', () => { armSounds(); startCamera(); });
   try { $('sound').checked = localStorage.getItem(SOUND_KEY) !== 'off'; } catch (e) {}
   $('sound').addEventListener('change', e => {
-    unlockAudio();
+    armSounds();
     try { localStorage.setItem(SOUND_KEY, e.target.checked ? 'on' : 'off'); } catch (err) {}
     if (e.target.checked) beep('ok');
   });
   $('torch-btn').addEventListener('click', toggleTorch);
-  $('scan-btn').addEventListener('click', () => { unlockAudio(); manualScan(); });
+  $('scan-btn').addEventListener('click', () => { armSounds(); manualScan(); });
   $('manual-btn').addEventListener('click', () => openSheet({}));
   $('auto-scan').addEventListener('change', e => {
-    unlockAudio();
+    armSounds();
     state.auto = e.target.checked;
     state.lastRead = null;
     lockOn(null);
