@@ -1,4 +1,4 @@
-// Run with: node panini/test/parse.test.js
+// Run with: node test/parse.test.js
 const assert = require('assert');
 const { parseCodeLine } = require('../js/parse.js');
 const Catalog = require('../js/catalog.js');

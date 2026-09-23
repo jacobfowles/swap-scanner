@@ -12,16 +12,16 @@ in the browser on that phone.
 
 ## Getting it on your phone
 
-The camera only works on an `https://` page (or `localhost`). The easiest
-option is GitHub Pages: repo **Settings → Pages → Deploy from a branch**, pick
-the branch and `/ (root)`, then open
+The camera only works on an `https://` page (or `localhost`). It's hosted on
+GitHub Pages (repo **Settings → Pages → Deploy from a branch → `main` /
+`/ (root)`**):
 
-    https://<your-user>.github.io/<repo>/panini/
+    https://jacobfowles.github.io/swap-scanner/
 
 On the phone, use *Add to Home Screen* so it opens like an app.
 
 For a quick test on a computer: `python3 -m http.server 8000` in the repo root
-and open <http://localhost:8000/panini/>.
+and open <http://localhost:8000/>.
 
 ## Using it
 
@@ -87,7 +87,7 @@ into clean black-on-white text and reads it as one line.
 
 ## Tests
 
-    node panini/test/parse.test.js
+    node test/parse.test.js
 
 covers the OCR-text parser (including common misreads like `O`↔`0`, `8`↔`B`,
 and noise seen on real sticker backs) and CSV import/export.
