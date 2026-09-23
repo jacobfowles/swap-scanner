@@ -37,6 +37,14 @@ and open <http://localhost:8000/panini/>.
   asking* also ticked, a sticker is added once it has been read confidently
   on two frames in a row. The same code won't be added again until the card leaves the
   box, so for a stack of identical spares just swap cards one by one.
+  You know when to swap without watching the status line:
+  - **Added:** a rising two-note beep and a big green **✓ ESP 16** banner on
+    the camera view. It stays until you take that card out.
+  - **Banner gone:** the card has left the box and the app is ready for the
+    next one.
+  - **Crooked card:** a low buzz (once) and an orange **Straighten the card**
+    banner.
+  Untick *Sound* to go silent (Android phones also vibrate).
 - **Type it in** — for anything the camera struggles with.
 - **Undo** — every add shows a toast with *Undo* for a few seconds.
 - **Catalog** — spares grouped by team in album order, with +/− buttons and a

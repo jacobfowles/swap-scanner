@@ -29,6 +29,9 @@
     <div id="camera" class="camera">
       <video id="video" playsinline muted autoplay></video>
       <div class="guide" id="guide"><i class="code-mark">NZL 3</i><span>Fit the back of the sticker in the box</span></div>
+      <div id="banner" class="banner" hidden role="status" aria-live="assertive">
+        <b id="banner-main"></b><span id="banner-sub"></span>
+      </div>
       <div id="area-editor" class="area-editor" hidden>
         <div id="area-draw" class="area-draw" hidden></div>
         <p class="area-help">Drag a box around the sticker code — or around the whole sticker</p>
@@ -53,6 +56,7 @@
     <div class="scan-options">
       <label><input type="checkbox" id="auto-scan"> Auto-scan</label>
       <label><input type="checkbox" id="auto-add"> Add without asking</label>
+      <label><input type="checkbox" id="sound" checked> Sound</label>
       <button id="area-btn" class="link-btn">Scan area</button>
       <button id="manual-btn" class="link-btn">Type it in</button>
     </div>

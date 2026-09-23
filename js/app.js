@@ -6,6 +6,7 @@
 
   const STORAGE_KEY = 'panini-wc26-swaps-v1';
   const AREA_KEY = 'panini-wc26-area-v1';
+  const SOUND_KEY = 'panini-wc26-sound-v1';
   const $ = id => document.getElementById(id);
 
   // ---------------------------------------------------------------- state --
@@ -20,6 +21,7 @@
     lastRead: null,     // id read on the previous frame (auto mode)
     lockedId: null,     // id just auto-added; wait for the card to change
     misses: 0,
+    warned: false,      // crooked-card warning already given for this card
     recent: [],
     undo: null,
   };
@@ -295,19 +297,32 @@
       // The card is there, just crooked: not a "card removed" frame.
       setGuide(null);
       state.lastRead = null;
+      state.misses = 0;
       setStatus(rescanMessage(r));
+      if (state.lockedId) return;   // the added card got nudged; keep the ✓
+      showBanner('warn', 'Straighten the card', `Tilted about ${Math.round(Math.abs(r.skew))}°`);
+      if (!state.warned) { beep('warn'); state.warned = true; }
       return;
     }
     const id = r && r.confident ? Catalog.stickerId(r.code, r.number) : null;
     if (!id) {
       // Nothing readable: after two such frames the card has left the box.
       setGuide(null);
-      if (++state.misses >= 2) state.lockedId = null;
+      if (++state.misses >= 2) {
+        // Card gone: ready for the next one.
+        state.lockedId = null;
+        state.warned = false;
+        hideBanner();
+      }
       state.lastRead = null;
-      setStatus(state.lockedId ? 'Next sticker…' : 'Looking for a sticker code…');
+      setStatus(state.lockedId ? 'Next sticker…' : 'Ready — put a sticker in the box.');
       return;
     }
     state.misses = 0;
+    state.warned = false;
+    // A different card (or the first read after a warning): clear the banner
+    // so an old ✓ never looks like it belongs to the new card.
+    if (id !== state.lockedId) hideBanner();
     if (id === state.lockedId) {
       setGuide('hit');
       setStatus(`${id} added — show the next sticker.`);
@@ -387,7 +402,11 @@
 
   function afterAdd(code, n, qty) {
     const id = Catalog.stickerId(code, n);
-    if (navigator.vibrate) navigator.vibrate(60);
+    beep('ok');
+    if (state.auto) {
+      const have = state.items[id];
+      showBanner('ok', `✓ ${id}${qty > 1 ? ' ×' + qty : ''}`, `Added (${have} spare${have > 1 ? 's' : ''}) · Swap in the next sticker`);
+    }
     state.recent.unshift({ id, qty });
     state.recent = state.recent.slice(0, 8);
     renderRecent();
@@ -398,8 +417,52 @@
       renderRecent();
       setStatus(`Removed ${id}.`);
       if (state.lockedId === id) state.lockedId = null;
+      hideBanner();
     });
   }
+
+  // -------------------------------------------------------------- feedback --
+  // For batch scanning from a stand: a sound plus a big banner on the camera
+  // view, so you can tell from a glance (or without looking) when to swap in
+  // the next sticker.
+  let audio = null;
+  function unlockAudio() {
+    // Browsers (iOS especially) only allow sound after a tap; call from one.
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === 'suspended') audio.resume();
+    } catch (e) { audio = null; }
+  }
+
+  function beep(kind) {
+    if (navigator.vibrate) navigator.vibrate(kind === 'ok' ? 80 : [60, 60, 60]);
+    if (!$('sound').checked || !audio) return;
+    const notes = kind === 'ok' ? [[880, 0, 0.09], [1320, 0.1, 0.14]] : [[220, 0, 0.12], [196, 0.16, 0.2]];
+    const t0 = audio.currentTime + 0.01;
+    for (const [freq, start, len] of notes) {
+      const osc = audio.createOscillator(), gain = audio.createGain();
+      osc.type = kind === 'ok' ? 'sine' : 'square';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t0 + start);
+      gain.gain.exponentialRampToValueAtTime(kind === 'ok' ? 0.4 : 0.15, t0 + start + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + start + len);
+      osc.connect(gain).connect(audio.destination);
+      osc.start(t0 + start);
+      osc.stop(t0 + start + len + 0.02);
+    }
+  }
+
+  function showBanner(kind, main, sub) {
+    const b = $('banner');
+    b.className = 'banner ' + kind;
+    $('banner-main').textContent = main;
+    $('banner-sub').textContent = sub || '';
+    // Restart the pop animation for a new message.
+    if (!b.hidden) { b.hidden = true; void b.offsetWidth; }
+    b.hidden = false;
+  }
+
+  function hideBanner() { $('banner').hidden = true; }
 
   // ----------------------------------------------------------------- toast --
   let toastTimer = null;
@@ -615,13 +678,22 @@
   });
 
   // --------------------------------------------------------------- wiring --
-  $('start-camera').addEventListener('click', startCamera);
+  $('start-camera').addEventListener('click', () => { unlockAudio(); startCamera(); });
+  try { $('sound').checked = localStorage.getItem(SOUND_KEY) !== 'off'; } catch (e) {}
+  $('sound').addEventListener('change', e => {
+    unlockAudio();
+    try { localStorage.setItem(SOUND_KEY, e.target.checked ? 'on' : 'off'); } catch (err) {}
+    if (e.target.checked) beep('ok');
+  });
   $('torch-btn').addEventListener('click', toggleTorch);
-  $('scan-btn').addEventListener('click', manualScan);
+  $('scan-btn').addEventListener('click', () => { unlockAudio(); manualScan(); });
   $('manual-btn').addEventListener('click', () => openSheet({}));
   $('auto-scan').addEventListener('change', e => {
+    unlockAudio();
     state.auto = e.target.checked;
     state.lastRead = state.lockedId = null;
+    state.warned = false;
+    hideBanner();
     $('scan-btn').hidden = state.auto;
     if (state.auto) {
       if (!state.stream) { setStatus('Start the camera to auto-scan.'); return; }
