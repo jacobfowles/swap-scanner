@@ -1,0 +1,12 @@
+{
+  "name": "Swap Scanner — Panini World Cup 2026",
+  "short_name": "Swap Scanner",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b3d2e",
+  "theme_color": "#0b3d2e",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
