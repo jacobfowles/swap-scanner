@@ -22,6 +22,7 @@
     lockedId: null,     // id just auto-added; wait for the card to change
     misses: 0,
     warned: false,      // crooked-card warning already given for this card
+    disturbed: false,   // movement seen since the last add: a card is being stacked
     recent: [],
     undo: null,
   };
@@ -273,33 +274,85 @@
   }
 
   // Auto mode keeps reading frames. With "add without asking" on, a sticker
-  // is added once the same code is read on two frames in a row; the same code
-  // is then ignored until the card leaves the box (so a pile of identical
-  // duplicates still works: take it away, put the next one in).
+  // is added once the same code is read (surely) on two frames in a row.
+  // After that the same code is ignored until either the box is empty for
+  // two frames (card taken out) or movement is seen in the box (the next card
+  // being stacked on top) — so a pile of identical duplicates still counts
+  // one per card.
   async function autoLoop() {
     while (state.auto && state.stream) {
-      if ($('sheet').hidden && $('area-editor').hidden && !state.scanning) {
+      const still = performance.now() - motion.lastAt > MOTION_SETTLE_MS;
+      if (still && $('sheet').hidden && $('area-editor').hidden && !state.scanning) {
         state.scanning = true;
         setGuide('busy');
+        const startedAt = performance.now();
         let r;
         try { r = await scanOnce(); } catch (e) { r = null; }
         state.scanning = false;
         if (!state.auto) break;
-        handleAutoRead(r);
+        // Something moved while reading: that frame may be the old card.
+        if (motion.lastAt <= startedAt) handleAutoRead(r);
       }
-      await new Promise(res => setTimeout(res, 250));
+      await new Promise(res => setTimeout(res, still ? 250 : 80));
     }
     setGuide(null);
   }
 
+  // ----- motion: a hand or card moving through the scan area -----
+  // Compares tiny grayscale snapshots of the scan area ~10x a second. Only a
+  // big change (many pixels changing a lot) counts — camera noise and slow
+  // exposure drift don't. Taps on the screen are ignored briefly, since
+  // tapping a phone on a stand can shake it.
+  const MOTION_SETTLE_MS = 400;
+  const motion = { prev: null, lastAt: 0, ignoreUntil: 0, canvas: document.createElement('canvas') };
+
+  function sampleMotion() {
+    const g = guideRect();
+    if (!g) return;
+    const c = motion.canvas;
+    c.width = 48;
+    c.height = Math.max(8, Math.round(48 * g.h / g.w));
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(video, g.x, g.y, g.w, g.h, 0, 0, c.width, c.height);
+    const d = ctx.getImageData(0, 0, c.width, c.height).data;
+    const gray = new Uint8Array(c.width * c.height);
+    for (let i = 0; i < gray.length; i++) gray[i] = (d[i * 4] * 299 + d[i * 4 + 1] * 587 + d[i * 4 + 2] * 114) / 1000;
+    const prev = motion.prev;
+    motion.prev = gray;
+    if (!prev || prev.length !== gray.length || performance.now() < motion.ignoreUntil) return;
+    let changed = 0;
+    for (let i = 0; i < gray.length; i++) if (Math.abs(gray[i] - prev[i]) > 30) changed++;
+    if (changed > gray.length * 0.08) onMotion();
+  }
+
+  function onMotion() {
+    motion.lastAt = performance.now();
+    if (state.lockedId && !state.disturbed) {
+      state.disturbed = true;
+      state.lastRead = null;
+      hideBanner();
+      setGuide(null);
+      setStatus('Next card…');
+    }
+  }
+
+  setInterval(() => { if (state.auto && state.stream && $('area-editor').hidden) sampleMotion(); }, 100);
+  document.addEventListener('pointerdown', () => { motion.ignoreUntil = performance.now() + 1000; }, true);
+
+  function lockOn(id) {
+    state.lockedId = id;
+    state.disturbed = false;
+  }
+
   function handleAutoRead(r) {
+    const newCopy = state.disturbed;   // something was placed since the last add
     if (r && r.reason === 'skewed') {
       // The card is there, just crooked: not a "card removed" frame.
       setGuide(null);
       state.lastRead = null;
       state.misses = 0;
       setStatus(rescanMessage(r));
-      if (state.lockedId) return;   // the added card got nudged; keep the ✓
+      if (state.lockedId && !newCopy) return;   // the added card got nudged; keep the ✓
       showBanner('warn', 'Straighten the card', `Tilted about ${Math.round(Math.abs(r.skew))}°`);
       if (!state.warned) { beep('warn'); state.warned = true; }
       return;
@@ -310,7 +363,7 @@
       setGuide(null);
       if (++state.misses >= 2) {
         // Card gone: ready for the next one.
-        state.lockedId = null;
+        lockOn(null);
         state.warned = false;
         hideBanner();
       }
@@ -320,12 +373,12 @@
     }
     state.misses = 0;
     state.warned = false;
-    // A different card (or the first read after a warning): clear the banner
-    // so an old ✓ never looks like it belongs to the new card.
-    if (id !== state.lockedId) hideBanner();
-    if (id === state.lockedId) {
+    const sameCard = id === state.lockedId && !newCopy;
+    // A new card: clear the banner so an old ✓ never looks like it belongs to it.
+    if (!sameCard) hideBanner();
+    if (sameCard) {
       setGuide('hit');
-      setStatus(`${id} added — show the next sticker.`);
+      setStatus(`${id} added — stack the next sticker.`);
       state.lastRead = id;
       return;
     }
@@ -335,7 +388,7 @@
         setGuide('hit');
         addSticker(r.code, r.number, 1);
         afterAdd(r.code, r.number, 1);
-        state.lockedId = id;
+        lockOn(id);
       } else {
         setStatus(`Seeing ${id}… hold steady`);
       }
@@ -396,7 +449,7 @@
     closeSheet();
     afterAdd(code, n, qty);
     // In auto mode (asking each time), don't immediately re-offer this card.
-    state.lockedId = Catalog.stickerId(code, n);
+    lockOn(Catalog.stickerId(code, n));
     state.lastRead = state.lockedId;
   }
 
@@ -405,7 +458,7 @@
     beep('ok');
     if (state.auto) {
       const have = state.items[id];
-      showBanner('ok', `✓ ${id}${qty > 1 ? ' ×' + qty : ''}`, `Added (${have} spare${have > 1 ? 's' : ''}) · Swap in the next sticker`);
+      showBanner('ok', `✓ ${id}${qty > 1 ? ' ×' + qty : ''}`, `Added (${have} spare${have > 1 ? 's' : ''}) · Next sticker`);
     }
     state.recent.unshift({ id, qty });
     state.recent = state.recent.slice(0, 8);
@@ -416,7 +469,7 @@
       state.recent = state.recent.filter((r, i) => !(i === 0 && r.id === id));
       renderRecent();
       setStatus(`Removed ${id}.`);
-      if (state.lockedId === id) state.lockedId = null;
+      // Stay locked on this card so it isn't immediately re-added.
       hideBanner();
     });
   }
@@ -691,7 +744,8 @@
   $('auto-scan').addEventListener('change', e => {
     unlockAudio();
     state.auto = e.target.checked;
-    state.lastRead = state.lockedId = null;
+    state.lastRead = null;
+    lockOn(null);
     state.warned = false;
     hideBanner();
     $('scan-btn').hidden = state.auto;

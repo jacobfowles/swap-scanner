@@ -35,13 +35,20 @@ and open <http://localhost:8000/panini/>.
   guide. A box with a little margin around the label works best.
 - **Auto-scan** — reads continuously, no button tapping. With *Add without
   asking* also ticked, a sticker is added once it has been read confidently
-  on two frames in a row. The same code won't be added again until the card leaves the
-  box, so for a stack of identical spares just swap cards one by one.
-  You know when to swap without watching the status line:
+  on two frames in a row. Built for stacking cards on a stand: put a card in,
+  wait for the beep, drop the next one on top.
+  - A **different** sticker on top is seen as soon as its code is read.
+  - Another copy of the **same** sticker is spotted from the movement of your
+    hand or the card in the box. Once things settle and the same code is read
+    again, it counts as one more. Taking the card out works too.
+  - It only reads when the view is still, so it never reads a half-placed card.
+    Taps on the screen are ignored for a second, so tapping the phone on the
+    stand doesn't count as a new card. Knocking the stand without touching the
+    screen could, which is what *Undo* is for.
+
+  How to tell when to place the next card:
   - **Added:** a rising two-note beep and a big green **✓ ESP 16** banner on
-    the camera view. It stays until you take that card out.
-  - **Banner gone:** the card has left the box and the app is ready for the
-    next one.
+    the camera view. It stays until the next card comes in.
   - **Crooked card:** a low buzz (once) and an orange **Straighten the card**
     banner.
   Untick *Sound* to go silent (Android phones also vibrate).
