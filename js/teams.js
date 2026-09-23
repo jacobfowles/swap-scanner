@@ -4,7 +4,8 @@
 (function (root) {
   const TEAMS = [
     // Specials: FWC 00 plus FWC 1-19 (emblem, mascots, hosts, museum history).
-    { code: 'FWC', name: 'FIFA World Cup specials', group: '', min: 0, max: 19, aliases: ['FIFA WORLD CUP', 'WORLD CUP'] },
+    // No aliases: every sticker back says "FIFA WORLD CUP 2026".
+    { code: 'FWC', name: 'FIFA World Cup specials', group: '', min: 0, max: 19, aliases: [] },
 
     { code: 'MEX', name: 'Mexico', group: 'A', aliases: ['MEXICO'] },
     { code: 'RSA', name: 'South Africa', group: 'A', aliases: ['SOUTH AFRICA'] },

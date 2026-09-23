@@ -110,10 +110,13 @@ button.big { padding: 14px 22px; font-size: 1.1rem; }
 }
 .guide {
   position: absolute;
-  left: 8%;
-  right: 8%;
-  top: 18%;
-  bottom: 18%;
+  /* Sticker-shaped (portrait, ~5:7), centred. */
+  left: 50%;
+  top: 50%;
+  width: 70%;
+  aspect-ratio: 5 / 7;
+  max-height: 88%;
+  transform: translate(-50%, -50%);
   border: 3px solid rgba(255, 255, 255, .9);
   border-radius: 10px;
   box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .35);
@@ -130,8 +133,63 @@ button.big { padding: 14px 22px; font-size: 1.1rem; }
   padding: 2px 8px;
   border-radius: 6px;
   margin-bottom: -26px;
+  white-space: nowrap;
 }
+.guide .code-mark {
+  position: absolute;
+  top: 5%;
+  right: 7%;
+  width: 32%;
+  height: 7%;
+  border: 2px dashed rgba(255, 255, 255, .8);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, .85);
+  font: 600 .75rem/1 system-ui, sans-serif;
+  font-style: normal;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.guide.custom {
+  transform: none;
+  aspect-ratio: auto;
+  max-height: none;
+  border-radius: 6px;
+}
+.guide.custom .code-mark { display: none; }
+.guide.custom span { display: none; }
 .guide.busy { border-color: #ffd54a; }
+
+.area-editor {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  cursor: crosshair;
+  background: rgba(0, 0, 0, .15);
+}
+.area-editor[hidden] { display: none; }
+.area-draw {
+  position: absolute;
+  border: 3px solid #ffd54a;
+  border-radius: 6px;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .4);
+  pointer-events: none;
+}
+.area-help {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 8px;
+  margin: 0;
+  text-align: center;
+  color: #fff;
+  font-size: .85rem;
+  text-shadow: 0 1px 3px #000;
+  pointer-events: none;
+}
+.area-controls { display: flex; gap: 8px; margin-top: 10px; }
+.area-controls[hidden] { display: none; }
+.area-controls button { flex: 1; }
 .guide.hit { border-color: var(--accent); }
 
 .camera-off {
@@ -165,7 +223,7 @@ button.big { padding: 14px 22px; font-size: 1.1rem; }
 }
 .scan-options label { display: flex; align-items: center; gap: 6px; }
 .scan-options input { width: 20px; height: 20px; }
-.scan-options .link-btn { margin-left: auto; }
+#area-btn { margin-left: auto; }
 
 .status { color: var(--muted); min-height: 1.4em; margin: 10px 0; font-size: .95rem; }
 .hint { color: var(--muted); font-size: .9rem; }

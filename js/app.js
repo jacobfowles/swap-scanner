@@ -2,13 +2,16 @@
   const { TEAMS, BY_CODE } = window.PaniniTeams;
   const { parseCardText, inRange } = window.PaniniParse;
   const Catalog = window.PaniniCatalog;
+  const { prepareForOcr, findCodePill, clearBorder, isolateText } = window.PaniniPreprocess;
 
   const STORAGE_KEY = 'panini-wc26-swaps-v1';
+  const AREA_KEY = 'panini-wc26-area-v1';
   const $ = id => document.getElementById(id);
 
   // ---------------------------------------------------------------- state --
   const state = {
     items: load(),
+    area: loadArea(),   // user-drawn scan box, fractions of the camera view
     stream: null,
     torchOn: false,
     scanning: false,
@@ -28,6 +31,15 @@
       return data && data.items ? data.items : {};
     } catch (e) {
       return {};
+    }
+  }
+
+  function loadArea() {
+    try {
+      const a = JSON.parse(localStorage.getItem(AREA_KEY));
+      return a && a.w > 0.02 && a.h > 0.02 ? a : null;
+    } catch (e) {
+      return null;
     }
   }
 
@@ -110,75 +122,140 @@
     if (!workerPromise) {
       if (!window.Tesseract) return Promise.reject(new Error('Tesseract not loaded'));
       workerPromise = (async () => {
-        const worker = await Tesseract.createWorker('eng');
-        await worker.setParameters({ tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT });
-        return worker;
+        return Tesseract.createWorker('eng');
       })();
       workerPromise.catch(() => { workerPromise = null; });
     }
     return workerPromise;
   }
 
-  // Copy the part of the video under the guide box onto a canvas, grayscale
-  // and contrast-stretched. `invert` handles light text on a dark print.
-  function grabGuideRegion(invert) {
+  // The guide box, in video-frame pixels (the video is shown object-fit: cover).
+  function guideRect() {
     const vw = video.videoWidth, vh = video.videoHeight;
     if (!vw || !vh) return null;
     const box = video.getBoundingClientRect();
     const g = $('guide').getBoundingClientRect();
-    // object-fit: cover — work out which part of the frame is on screen.
     const scale = Math.max(box.width / vw, box.height / vh);
     const ox = (box.width - vw * scale) / 2, oy = (box.height - vh * scale) / 2;
-    const sx = Math.max(0, (g.left - box.left - ox) / scale);
-    const sy = Math.max(0, (g.top - box.top - oy) / scale);
-    const sw = Math.min(vw - sx, g.width / scale);
-    const sh = Math.min(vh - sy, g.height / scale);
+    const x = Math.max(0, (g.left - box.left - ox) / scale);
+    const y = Math.max(0, (g.top - box.top - oy) / scale);
+    return { x, y, w: Math.min(vw - x, g.width / scale), h: Math.min(vh - y, g.height / scale) };
+  }
 
-    const targetW = 1400;
-    const k = targetW / sw;
+  // Draw a rectangle of the current frame onto the work canvas at `targetW`
+  // pixels wide; return its
+  // pixels. A rect with an `angle` (centre cx, cy) is cut out straightened.
+  function grab(rect, targetW) {
+    const k = targetW / rect.w;
     const canvas = $('work');
-    canvas.width = Math.round(sw * k);
-    canvas.height = Math.round(sh * k);
+    canvas.width = Math.max(1, Math.round(rect.w * k));
+    canvas.height = Math.max(1, Math.round(rect.h * k));
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+    if (rect.angle) {
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(-rect.angle);
+      ctx.scale(k, k);
+      ctx.translate(-rect.cx, -rect.cy);
+      ctx.drawImage(video, 0, 0);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    } else {
+      ctx.drawImage(video, rect.x, rect.y, rect.w, rect.h, 0, 0, canvas.width, canvas.height);
+    }
+    return { canvas, ctx, img: ctx.getImageData(0, 0, canvas.width, canvas.height) };
+  }
 
-    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const d = img.data;
-    const hist = new Uint32Array(256);
-    for (let i = 0; i < d.length; i += 4) {
-      const y = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000 | 0;
-      d[i] = y;
-      hist[y]++;
-    }
-    // Stretch the 2nd..98th percentile to full range.
-    const n = d.length / 4;
-    let lo = 0, hi = 255, acc = 0;
-    for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc > n * 0.02) { lo = v; break; } }
-    acc = 0;
-    for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc > n * 0.02) { hi = v; break; } }
-    const range = Math.max(1, hi - lo);
-    for (let i = 0; i < d.length; i += 4) {
-      let y = Math.min(255, Math.max(0, (d[i] - lo) * 255 / range));
-      if (invert) y = 255 - y;
-      d[i] = d[i + 1] = d[i + 2] = y;
-    }
-    ctx.putImageData(img, 0, 0);
+  function prepared(rect, targetW, mode) {
+    const { canvas, ctx, img } = grab(rect, targetW);
+    ctx.putImageData(prepareForOcr(img, mode), 0, 0);
     return canvas;
   }
 
+  // The pill as dark text on white: `height` px tall (Tesseract reads text
+  // best around 40-60px high) with a white margin.
+  function pillCanvas(rect, height) {
+    const { canvas, ctx, img } = grab(rect, height * rect.w / rect.h);
+    ctx.putImageData(isolateText(clearBorder(prepareForOcr(img, 'invert'))), 0, 0);
+    const pad = 20;
+    const out = document.createElement('canvas');
+    out.width = canvas.width + 2 * pad;
+    out.height = canvas.height + 2 * pad;
+    const o = out.getContext('2d');
+    o.fillStyle = '#fff';
+    o.fillRect(0, 0, out.width, out.height);
+    o.drawImage(canvas, pad, pad);
+    return out;
+  }
+
+  // The code is printed in white inside a dark pill at the top right of the
+  // sticker back. Find that pill and read it as a single line; otherwise
+  // fall back to the top-right corner and then the whole card.
+  function findPillRect(guide, opts) {
+    const small = grab(guide, 320);
+    const p = findCodePill(small.img, opts);
+    if (!p) return null;
+    const k = guide.w / small.canvas.width;
+    const pad = p.thick * 0.25;
+    const w = (p.len + 2 * pad) * k, h = (p.thick + 2 * pad) * k;
+    const cx = guide.x + (p.cx + 0.5) * k, cy = guide.y + (p.cy + 0.5) * k;
+    // Straighten only noticeably tilted labels; the rest is a plain crop.
+    if (Math.abs(p.angle) > 0.02) return { x: cx - w / 2, y: cy - h / 2, w, h, cx, cy, angle: p.angle };
+    const x = Math.max(0, cx - w / 2), y = Math.max(0, cy - h / 2);
+    return { x, y, w: Math.min(video.videoWidth - x, w), h: Math.min(video.videoHeight - y, h) };
+  }
+
+  const LINE = { tessedit_pageseg_mode: '7', tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ' };
+  const SPARSE = { tessedit_pageseg_mode: '11', tessedit_char_whitelist: '' };
+
+  // Reads the frame several ways (the label at different sizes, then wider
+  // areas) and stops once two reads agree. `sure` means they agreed; a lone
+  // read is still returned for the user to check, but auto-add ignores it.
   async function scanOnce() {
     const worker = await getWorker();
-    let best = null, rawText = '';
-    for (const invert of [false, true]) {
-      const canvas = grabGuideRegion(invert);
-      if (!canvas) break;
+    const guide = guideRect();
+    if (!guide) return { ...parseCardText(''), rawText: '' };
+
+    const custom = !!state.area;
+    const passes = [];
+    const pill = findPillRect(guide, custom ? { maxWidth: 1 } : undefined);
+    if (pill) {
+      for (const h of [120, 80, 60]) passes.push({ canvas: () => pillCanvas(pill, h), params: LINE, mode: 'pill' + h });
+    }
+    if (custom) {
+      // A box drawn tight around the label: treat the whole box as the label.
+      passes.push({ canvas: () => pillCanvas(guide, 120), params: LINE, mode: 'area-line' });
+    } else {
+      const corner = { x: guide.x + guide.w * 0.3, y: guide.y, w: guide.w * 0.7, h: guide.h * 0.3 };
+      passes.push({ canvas: () => prepared(corner, 1000, 'auto'), params: SPARSE, mode: 'corner' });
+    }
+    passes.push({ canvas: () => prepared(guide, 1400, 'auto'), params: SPARSE, mode: 'area' });
+
+    const votes = new Map();
+    let first = null, hint = null, rawText = '';
+    for (const pass of passes) {
+      const canvas = pass.canvas();
+      await worker.setParameters(pass.params);
       const { data } = await worker.recognize(canvas);
       rawText += data.text + '\n';
+      if (window.__scanDebug) window.__scanDebug.push({ mode: pass.mode, text: data.text, png: canvas.toDataURL() });
       const r = parseCardText(data.text);
-      if (r.confident) return { ...r, rawText };
-      if (!best && r.code) best = r;
+      if (r.confident) {
+        const id = Catalog.stickerId(r.code, r.number);
+        votes.set(id, (votes.get(id) || 0) + 1);
+        if (!first) first = r;
+        if (votes.get(id) >= 2) return { ...r, sure: true, rawText };
+      } else if (!hint && r.code) {
+        hint = r;
+      }
     }
-    return { ...(best || parseCardText('')), rawText };
+    if (first) {
+      // No agreement: offer the most common read, flagged for checking.
+      const [topId] = [...votes].sort((x, y) => y[1] - x[1])[0];
+      const { code, number } = Catalog.splitId(topId);
+      return { ...first, code, number, sure: false, rawText };
+    }
+    return { ...(hint || parseCardText('')), sure: false, rawText };
   }
 
   function setGuide(cls) {
@@ -218,7 +295,7 @@
   // duplicates still works: take it away, put the next one in).
   async function autoLoop() {
     while (state.auto && state.stream) {
-      if ($('sheet').hidden && !state.scanning) {
+      if ($('sheet').hidden && $('area-editor').hidden && !state.scanning) {
         state.scanning = true;
         setGuide('busy');
         let r;
@@ -235,6 +312,7 @@
   function handleAutoRead(r) {
     const id = r && r.confident ? Catalog.stickerId(r.code, r.number) : null;
     if (!id) {
+      // Nothing readable: after two such frames the card has left the box.
       setGuide(null);
       if (++state.misses >= 2) state.lockedId = null;
       state.lastRead = null;
@@ -249,7 +327,8 @@
       return;
     }
     if (state.autoAdd) {
-      if (id === state.lastRead) {
+      // Only add on sure reads, seen on two frames in a row.
+      if (r.sure && id === state.lastRead) {
         setGuide('hit');
         addSticker(r.code, r.number, 1);
         afterAdd(r.code, r.number, 1);
@@ -257,10 +336,11 @@
       } else {
         setStatus(`Seeing ${id}… hold steady`);
       }
-    } else {
-      setGuide('hit');
-      openSheet(r);
+      state.lastRead = r.sure ? id : null;
+      return;
     }
+    setGuide('hit');
+    openSheet(r);
     state.lastRead = id;
   }
 
@@ -277,7 +357,7 @@
     $('sheet-error').textContent = '';
     const raw = (r.rawText || '').replace(/\s+/g, ' ').trim();
     $('sheet-read').textContent = r.code
-      ? (r.confident ? 'Check it, then add.' : 'Team found but not sure about the number — please check.')
+      ? (r.confident && r.sure !== false ? 'Check it, then add.' : 'Not completely sure about this one — please check.')
       : (raw ? 'Could not find a code. Pick the team and number.' : 'Pick the team and number.');
     $('sheet-title').textContent = r.code && r.number !== null && r.number !== undefined
       ? `Add ${r.code} ${r.number}` : 'Add sticker';
@@ -461,6 +541,92 @@
     showToast(`Imported ${count} stickers${skipped ? ` (${skipped} rows skipped)` : ''}`);
   }
 
+  // ------------------------------------------------------------ scan area --
+  // With a scanner stand the sticker is always in the same spot, so the user
+  // can draw the box once (around the code label, or the whole sticker) and
+  // it is remembered on this phone.
+  function applyArea() {
+    const g = $('guide'), a = state.area;
+    g.classList.toggle('custom', !!a);
+    if (a) {
+      Object.assign(g.style, { left: a.x * 100 + '%', top: a.y * 100 + '%', width: a.w * 100 + '%', height: a.h * 100 + '%' });
+    } else {
+      g.removeAttribute('style');
+    }
+    $('area-btn').textContent = a ? 'Scan area (custom)' : 'Scan area';
+  }
+
+  let draft = null, dragStart = null;
+
+  function drawDraft() {
+    const el = $('area-draw');
+    el.hidden = !draft;
+    if (draft) {
+      Object.assign(el.style, { left: draft.x * 100 + '%', top: draft.y * 100 + '%', width: draft.w * 100 + '%', height: draft.h * 100 + '%' });
+    }
+  }
+
+  function openAreaEditor() {
+    if (!state.stream) { setStatus('Start the camera first, then set the scan area.'); return; }
+    closeSheet();
+    draft = state.area ? { ...state.area } : null;
+    drawDraft();
+    $('area-editor').hidden = false;
+    $('area-controls').hidden = false;
+    $('guide').hidden = true;
+    setStatus('Drag on the camera view to draw the scan area.');
+  }
+
+  function closeAreaEditor() {
+    $('area-editor').hidden = true;
+    $('area-controls').hidden = true;
+    $('guide').hidden = false;
+    dragStart = null;
+  }
+
+  function pointerPos(e) {
+    const r = $('area-editor').getBoundingClientRect();
+    return {
+      x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)),
+      y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)),
+    };
+  }
+
+  $('area-editor').addEventListener('pointerdown', e => {
+    dragStart = pointerPos(e);
+    $('area-editor').setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  $('area-editor').addEventListener('pointermove', e => {
+    if (!dragStart) return;
+    const p = pointerPos(e);
+    draft = {
+      x: Math.min(dragStart.x, p.x), y: Math.min(dragStart.y, p.y),
+      w: Math.abs(p.x - dragStart.x), h: Math.abs(p.y - dragStart.y),
+    };
+    drawDraft();
+  });
+  $('area-editor').addEventListener('pointerup', () => { dragStart = null; });
+  $('area-editor').addEventListener('pointercancel', () => { dragStart = null; });
+
+  $('area-btn').addEventListener('click', openAreaEditor);
+  $('area-cancel').addEventListener('click', () => { closeAreaEditor(); setStatus('Scan area unchanged.'); });
+  $('area-reset').addEventListener('click', () => {
+    state.area = null;
+    try { localStorage.removeItem(AREA_KEY); } catch (e) {}
+    applyArea();
+    closeAreaEditor();
+    setStatus('Using the default sticker-shaped scan area.');
+  });
+  $('area-save').addEventListener('click', () => {
+    if (!draft || draft.w < 0.04 || draft.h < 0.02) { setStatus('Draw a box first (drag on the camera view).'); return; }
+    state.area = draft;
+    try { localStorage.setItem(AREA_KEY, JSON.stringify(draft)); } catch (e) {}
+    applyArea();
+    closeAreaEditor();
+    setStatus('Scan area saved. It stays set on this phone.');
+  });
+
   // --------------------------------------------------------------- wiring --
   $('start-camera').addEventListener('click', startCamera);
   $('torch-btn').addEventListener('click', toggleTorch);
@@ -513,5 +679,6 @@
     render();
   });
 
+  applyArea();
   render();
 })();

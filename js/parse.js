@@ -9,13 +9,15 @@
     ? require('./teams.js')
     : root.PaniniTeams;
 
-  const TO_LETTER = { '0': 'O', '1': 'I', '2': 'Z', '4': 'A', '5': 'S', '6': 'G', '8': 'B' };
-  const TO_DIGIT = { O: '0', D: '0', Q: '0', U: '0', I: '1', L: '1', T: '1', J: '1', Z: '2', S: '5', B: '8', G: '6', A: '4' };
+  // Only the confusions OCR really makes on this print; looser mappings
+  // (T->1, A->4...) turned random words into sticker codes.
+  const TO_LETTER = { '0': 'O', '1': 'I', '2': 'Z', '5': 'S', '6': 'G', '8': 'B' };
+  const TO_DIGIT = { O: '0', o: '0', Q: '0', D: '0', I: '1', l: '1', L: '1', '|': '1', S: '5', s: '5', B: '8', Z: '2', z: '2' };
 
   const asLetters = s => s.replace(/[0-9]/g, c => TO_LETTER[c] || c);
-  const asDigits = s => s.replace(/[A-Z]/g, c => TO_DIGIT[c] || c);
+  const asDigits = s => s.replace(/[^0-9]/g, c => TO_DIGIT[c] || c);
 
-  const stripAccents = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const stripAccents = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
   // Longest aliases first so "SOUTH AFRICA" wins over a shorter overlap.
   const ALIASES = Teams.TEAMS
@@ -34,32 +36,41 @@
     return /^\d{1,2}$/.test(d) ? parseInt(d, 10) : null;
   }
 
+  // A team code as printed: three capitals (a digit may stand in for a
+  // look-alike letter, but at least two must be real capitals).
+  function readCode(tok) {
+    if (!/^[A-Z0-9]{3}$/.test(tok) || (tok.match(/[A-Z]/g) || []).length < 2) return null;
+    const code = asLetters(tok);
+    return Teams.BY_CODE[code] ? code : null;
+  }
+
   function parseCardText(text) {
-    const upper = stripAccents(String(text || '')).toUpperCase();
-    const tokens = upper.split(/[^A-Z0-9]+/).filter(Boolean);
+    const clean = stripAccents(String(text || ''));
+    const upper = clean.toUpperCase();
+    // Case is kept: codes are printed in capitals, and lowercase OCR noise
+    // ("Sen", "Ji") must not turn into a code.
+    const tokens = clean.split(/[^A-Za-z0-9|]+/).filter(Boolean);
     const candidates = [];
+    const push = (code, n, score) => { if (inRange(code, n)) candidates.push({ code, number: n, score }); };
 
     for (let i = 0; i < tokens.length; i++) {
       const tok = tokens[i];
 
-      // "MEX" "12"  (code and number as separate tokens)
-      if (tok.length === 3) {
-        const code = asLetters(tok);
-        if (Teams.BY_CODE[code]) {
-          const n = readNumber(tokens[i + 1]);
-          if (n !== null && inRange(code, n)) {
-            candidates.push({ code, number: n, score: tok === code ? 3 : 2 });
-          }
-        }
+      // "NZL" "3"  (code and number as separate tokens)
+      const code = readCode(tok);
+      if (code) {
+        const n = readNumber(tokens[i + 1]);
+        if (n !== null) push(code, n, tok === code ? 3 : 2);
       }
 
-      // "MEX12"  (glued together)
-      if (tok.length === 4 || tok.length === 5) {
-        const code = asLetters(tok.slice(0, 3));
-        const n = readNumber(tok.slice(3));
-        if (Teams.BY_CODE[code] && n !== null && inRange(code, n)) {
-          candidates.push({ code, number: n, score: tok.slice(0, 3) === code ? 3 : 2 });
-        }
+      // "NZL3", or with pill-edge junk in front: "CNZL3"
+      for (const numLen of [1, 2]) {
+        if (tok.length < 3 + numLen) continue;
+        const n = readNumber(tok.slice(-numLen));
+        const pre = tok.slice(0, -numLen);
+        const c = readCode(pre.slice(-3));
+        if (n === null || !c) continue;
+        push(c, n, (pre.slice(-3) === c ? 3 : 2) - (pre.length > 3 ? 1 : 0));
       }
     }
 

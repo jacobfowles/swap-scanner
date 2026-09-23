@@ -5,7 +5,10 @@ const Catalog = require('../js/catalog.js');
 
 const cases = [
   ['MEX 12', 'MEX', 12],
-  ['mex12', 'MEX', 12],
+  ['MEX12', 'MEX', 12],
+  ['NZL 3', 'NZL', 3],             // real sticker back
+  ['(CNZL3)', 'NZL', 3],           // pill edge read as "(C"
+  ['FIFA WORLD CUP 2026 | NZL 3 +', 'NZL', 3],
   ['ARG 1O', 'ARG', 10],          // O read instead of 0
   ['8RA 7', 'BRA', 7],            // 8 read instead of B
   ['FWC 00', 'FWC', 0],
@@ -27,6 +30,10 @@ assert.strictEqual(parseCardText('MEX 21').code, null);
 assert.strictEqual(parseCardText('FWC 20').code, null);
 assert.strictEqual(parseCardText('THE 12').code, null);
 assert.strictEqual(parseCardText('').code, null);
+assert.strictEqual(parseCardText('mex 12').code, null);          // codes are printed in capitals
+assert.strictEqual(parseCardText('Redd Sen TT BRAK').code, null); // OCR noise seen on a real card
+// Every sticker back says this; it must not suggest the FWC specials.
+assert.strictEqual(parseCardText('FIFA WORLD CUP 2026\nV.le Emilio Po 380 - 41126 Modena').code, null);
 
 // Team name only -> not confident, team suggested.
 const hint = parseCardText('ARGENTINA\n7');

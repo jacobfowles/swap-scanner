@@ -29,9 +29,13 @@ and open <http://localhost:8000/panini/>.
   *Scan*. Check the team and number, set *How many* if you have several of that
   one, and tap *Add*. Good light helps a lot; the 🔦 button turns on the
   flashlight on phones that support it.
+- **Scan area** — for a scanner stand: tap *Scan area*, drag a box on the
+  camera view around the code label (or the whole sticker), and *Save area*.
+  It's remembered on that phone; *Use default* goes back to the sticker-shaped
+  guide. A box with a little margin around the label works best.
 - **Auto-scan** — reads continuously, no button tapping. With *Add without
-  asking* also ticked, a sticker is added as soon as the same code is read
-  twice in a row. The same code won't be added again until the card leaves the
+  asking* also ticked, a sticker is added once it has been read confidently
+  on two frames in a row. The same code won't be added again until the card leaves the
   box, so for a stack of identical spares just swap cards one by one.
 - **Type it in** — for anything the camera struggles with.
 - **Undo** — every add shows a toast with *Undo* for a few seconds.
@@ -43,6 +47,15 @@ and open <http://localhost:8000/panini/>.
   list). It also accepts any CSV with a `sticker` column (`MEX 12`) or `code`
   and `number` columns, plus an optional `quantity`.
 
+## How the reading works
+
+The code is printed in white inside a dark rounded label at the top right of
+every sticker back (e.g. `NZL 3`). The app finds that label in the frame,
+straightens it if the card is tilted, turns it into clean black-on-white text
+and reads it as one line. Each scan reads it at a few sizes and only counts as
+sure when two reads agree; otherwise it asks you to check. If no label is
+found it falls back to reading the top-right corner, then the whole card.
+
 ## The album
 
 48 teams × 20 stickers (1 = team logo, 13 = team photo, the rest players) plus
@@ -53,5 +66,5 @@ and open <http://localhost:8000/panini/>.
 
     node panini/test/parse.test.js
 
-covers the OCR-text parser (including common misreads like `O`↔`0`, `8`↔`B`)
-and CSV import/export.
+covers the OCR-text parser (including common misreads like `O`↔`0`, `8`↔`B`,
+and noise seen on real sticker backs) and CSV import/export.

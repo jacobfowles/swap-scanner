@@ -28,12 +28,22 @@
   <section id="tab-scan" class="tab active">
     <div id="camera" class="camera">
       <video id="video" playsinline muted autoplay></video>
-      <div class="guide" id="guide"><span>Fit the back of the sticker in the box</span></div>
+      <div class="guide" id="guide"><i class="code-mark">NZL 3</i><span>Fit the back of the sticker in the box</span></div>
+      <div id="area-editor" class="area-editor" hidden>
+        <div id="area-draw" class="area-draw" hidden></div>
+        <p class="area-help">Drag a box around the sticker code — or around the whole sticker</p>
+      </div>
       <div id="camera-off" class="camera-off">
         <p>Point your phone at the <b>back</b> of a sticker. The app reads the code (like <b>MEX 12</b>) and adds it to your swaps list.</p>
         <button id="start-camera" class="primary big">Start camera</button>
         <p class="hint" id="camera-error"></p>
       </div>
+    </div>
+
+    <div id="area-controls" class="area-controls" hidden>
+      <button id="area-save" class="primary">Save area</button>
+      <button id="area-reset">Use default</button>
+      <button id="area-cancel">Cancel</button>
     </div>
 
     <div class="scan-controls">
@@ -43,6 +53,7 @@
     <div class="scan-options">
       <label><input type="checkbox" id="auto-scan"> Auto-scan</label>
       <label><input type="checkbox" id="auto-add"> Add without asking</label>
+      <button id="area-btn" class="link-btn">Scan area</button>
       <button id="manual-btn" class="link-btn">Type it in</button>
     </div>
     <p id="status" class="status">Camera is off.</p>
@@ -102,6 +113,7 @@
 <script src="js/teams.js"></script>
 <script src="js/parse.js"></script>
 <script src="js/catalog.js"></script>
+<script src="js/preprocess.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
