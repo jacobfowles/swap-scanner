@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b3d2e">
+<meta name="theme-color" content="#0a2a20">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Swap Scanner">
@@ -11,12 +11,14 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon.svg">
 <link rel="manifest" href="manifest.webmanifest">
+<link rel="preload" href="fonts/barlow-condensed-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 <div id="gate" class="gate" hidden>
   <form id="gate-form" class="gate-card" autocomplete="on">
-    <img src="icon.svg" alt="" width="64" height="64">
+    <img src="icon.svg" alt="" width="68" height="68">
     <h1>Swap Scanner</h1>
     <label for="gate-password">Password</label>
     <input id="gate-password" type="password" autocomplete="current-password" required>
@@ -26,26 +28,30 @@
 </div>
 <script src="js/config.js"></script>
 <script src="js/gate.js"></script>
-<header>
-  <h1>Swap Scanner</h1>
-  <span id="total-badge" class="badge">0 spares</span>
+<header class="topbar">
+  <div class="topbar-row">
+    <div class="brand">
+      <img src="icon.svg" alt="" width="30" height="30">
+      <h1>Swap<span>Scanner</span></h1>
+    </div>
+    <span id="total-badge" class="badge">0 spares</span>
+  </div>
+  <div class="catalog-bar">
+    <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h10a4 4 0 0 1 4 4v12H9a4 4 0 0 1-4-4z"/><path d="M5 16a4 4 0 0 1 4-4h10"/></svg>
+    <label for="catalog-select" class="sr-only">Catalog</label>
+    <select id="catalog-select" aria-label="Current catalog"></select>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-tab="scan" class="active"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg>Scan</button>
+    <button role="tab" data-tab="catalog"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h10a4 4 0 0 1 4 4v12H9a4 4 0 0 1-4-4z"/><path d="M5 16a4 4 0 0 1 4-4h10"/></svg>Catalog</button>
+  </nav>
 </header>
-
-<nav class="tabs" role="tablist">
-  <button role="tab" data-tab="scan" class="active">Scan</button>
-  <button role="tab" data-tab="catalog">Catalog</button>
-</nav>
-
-<div class="catalog-bar">
-  <label for="catalog-select">Catalog</label>
-  <select id="catalog-select" aria-label="Current catalog"></select>
-</div>
 
 <main>
   <section id="tab-scan" class="tab active">
     <div id="camera" class="camera">
       <video id="video" playsinline muted autoplay></video>
-      <div class="guide" id="guide"><i class="code-mark">NZL 3</i><span>Fit the back of the sticker in the box</span></div>
+      <div class="guide" id="guide"><i class="code-mark" aria-hidden="true"></i><span>Fit the back of the sticker in the box</span></div>
       <div id="banner" class="banner" hidden role="status" aria-live="assertive">
         <b id="banner-main"></b><span id="banner-sub"></span>
       </div>
@@ -54,8 +60,9 @@
         <p class="area-help">Drag a box around the sticker code — or around the whole sticker</p>
       </div>
       <div id="camera-off" class="camera-off">
-        <p>Point your phone at the <b>back</b> of a sticker. The app reads the code (like <b>MEX 12</b>) and adds it to your swaps list.</p>
-        <button id="start-camera" class="primary big">Start camera</button>
+        <span class="code-chip">MEX 12</span>
+        <p>Point the camera at the <b>back</b> of a sticker. The code is read and added to your swaps.</p>
+        <button id="start-camera" class="primary big"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg>Start camera</button>
         <p class="hint" id="camera-error"></p>
       </div>
     </div>
@@ -67,38 +74,55 @@
     </div>
 
     <div class="scan-controls">
-      <button id="scan-btn" class="primary big" disabled>Scan</button>
-      <button id="undo-last" class="undo-big" disabled>↶ Undo</button>
-      <button id="torch-btn" class="icon-btn" hidden title="Flashlight">🔦</button>
-    </div>
-    <div class="scan-options">
-      <label><input type="checkbox" id="auto-scan"> Auto-scan</label>
-      <label><input type="checkbox" id="auto-add"> Add without asking</label>
-      <label><input type="checkbox" id="sound" checked> Sound</label>
-      <button id="area-btn" class="link-btn">Scan area</button>
-      <button id="manual-btn" class="link-btn">Type it in</button>
+      <button id="scan-btn" class="primary big" disabled><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8 12h8"/></svg>Scan</button>
+      <button id="undo-last" class="undo-big" disabled><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg><span class="undo-text"><b>Undo</b><small id="undo-what"></small></span></button>
+      <button id="torch-btn" class="icon-btn" hidden title="Flashlight" aria-label="Flashlight"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8v4l-2 4v11a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V10L8 6z"/><path d="M12 14v2"/></svg></button>
     </div>
     <p id="status" class="status">Camera is off.</p>
 
+    <div class="panel toggles">
+      <label class="toggle">
+        <span><b>Auto-scan</b><small>Keeps reading — no tapping</small></span>
+        <input type="checkbox" id="auto-scan" class="switch">
+      </label>
+      <label class="toggle">
+        <span><b>Add without asking</b><small>Adds each sure read straight away</small></span>
+        <input type="checkbox" id="auto-add" class="switch">
+      </label>
+      <label class="toggle">
+        <span><b>Sound</b><small>Beep on add, buzz when crooked</small></span>
+        <input type="checkbox" id="sound" class="switch" checked>
+      </label>
+    </div>
+    <div class="button-row">
+      <button id="area-btn" class="ghost"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7V4h3M18 4h3v3M21 17v3h-3M6 20H3v-3"/><rect x="8" y="8" width="8" height="8" rx="1"/></svg><span id="area-label">Scan area</span></button>
+      <button id="manual-btn" class="ghost"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>Type it in</button>
+    </div>
+
+    <h2 class="section-title" id="recent-title" hidden>Added this session</h2>
     <ul id="recent" class="recent"></ul>
   </section>
 
   <section id="tab-catalog" class="tab">
     <div class="summary" id="summary"></div>
     <div class="actions">
-      <button id="share-btn" class="primary">Share CSV</button>
-      <button id="download-btn">Download CSV</button>
-      <button id="copy-btn">Copy swap list</button>
-      <button id="import-btn">Import CSV</button>
+      <button id="share-btn" class="primary"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7"/></svg>Share CSV</button>
+      <button id="download-btn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Download</button>
+      <button id="copy-btn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Copy list</button>
+      <button id="import-btn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M5 21h14"/></svg>Import</button>
       <input type="file" id="import-file" accept=".csv,text/csv,text/plain" hidden>
     </div>
-    <input type="search" id="filter" placeholder="Filter (e.g. ARG or Brazil)" autocomplete="off">
+    <div class="search">
+      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
+      <input type="search" id="filter" placeholder="Filter — ARG, Brazil…" autocomplete="off" aria-label="Filter stickers">
+    </div>
     <div id="catalog-list"></div>
-    <p class="danger-zone">
-      <button id="rename-btn" class="link-btn">Rename this catalog</button>
-      <button id="clear-btn" class="link-btn danger">Clear this catalog</button>
-      <button id="delete-btn" class="link-btn danger">Delete this catalog</button>
-    </p>
+    <h2 class="section-title">Manage catalog</h2>
+    <div class="panel manage">
+      <button id="rename-btn" class="row-btn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>Rename this catalog</button>
+      <button id="clear-btn" class="row-btn danger"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 21-4-4L14 6l7 7-8 8z"/><path d="M7 21h14"/></svg>Clear this catalog</button>
+      <button id="delete-btn" class="row-btn danger"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M9 7V4h6v3"/></svg>Delete this catalog</button>
+    </div>
   </section>
 </main>
 
@@ -133,7 +157,7 @@
 
 <div id="toast" class="toast" hidden role="status">
   <span id="toast-text"></span>
-  <button id="toast-undo" class="toast-undo">↶ UNDO</button>
+  <button id="toast-undo" class="toast-undo"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>Undo</button>
 </div>
 
 <canvas id="work" hidden></canvas>

@@ -602,7 +602,8 @@
     const last = state.undoStack[state.undoStack.length - 1];
     const btn = $('undo-last');
     btn.disabled = !last;
-    btn.textContent = last ? `↶ Undo ${last.id}${last.qty > 1 ? ' ×' + last.qty : ''}` : '↶ Undo';
+    $('undo-what').textContent = last ? `${last.id}${last.qty > 1 ? ' ×' + last.qty : ''}` : '';
+    btn.setAttribute('aria-label', last ? `Undo ${last.id}${last.qty > 1 ? ' times ' + last.qty : ''}` : 'Undo');
   }
 
   // -------------------------------------------------------------- feedback --
@@ -711,9 +712,13 @@
   function setStatus(s) { $('status').textContent = s; }
 
   function renderRecent() {
-    $('recent').innerHTML = state.recent.map(r =>
-      `<li><span>${r.id}${r.qty > 1 ? ' ×' + r.qty : ''}</span><span class="qty">${state.items[r.id] || 0} spare(s)</span></li>`
-    ).join('');
+    $('recent-title').hidden = !state.recent.length;
+    $('recent').innerHTML = state.recent.map(r => {
+      const have = state.items[r.id] || 0;
+      return `<li><span class="code-chip">${escapeHtml(r.id)}</span>` +
+        `<span class="recent-added">${r.qty > 1 ? '+' + r.qty : '+1'}</span>` +
+        `<span class="qty">${have} spare${have === 1 ? '' : 's'}</span></li>`;
+    }).join('');
   }
 
   function escapeHtml(s) {
@@ -727,9 +732,9 @@
     const teams = new Set(entries.map(e => e.code));
     $('total-badge').textContent = `${total} spare${total === 1 ? '' : 's'}`;
     $('summary').innerHTML =
-      `<div><b>${total}</b><span>spares</span></div>` +
-      `<div><b>${entries.length}</b><span>different</span></div>` +
-      `<div><b>${teams.size}</b><span>teams</span></div>`;
+      `<div><b>${total}</b><span>Spares</span></div>` +
+      `<div><b>${entries.length}</b><span>Different</span></div>` +
+      `<div><b>${teams.size}</b><span>Teams</span></div>`;
 
     const q = $('filter').value.trim().toUpperCase();
     const groups = new Map();
@@ -741,20 +746,23 @@
     }
 
     if (!entries.length) {
-      $('catalog-list').innerHTML = '<p class="empty">No spares yet. Scan the back of a sticker to add it.</p>';
+      $('catalog-list').innerHTML = '<div class="empty"><span class="code-chip muted">— —</span><p>No spares in this catalog yet.<br>Scan the back of a sticker to add it.</p></div>';
     } else if (!groups.size) {
-      $('catalog-list').innerHTML = '<p class="empty">Nothing matches that filter.</p>';
+      $('catalog-list').innerHTML = '<div class="empty"><p>Nothing matches that filter.</p></div>';
     } else {
       $('catalog-list').innerHTML = [...groups].map(([code, list]) => {
         const t = BY_CODE[code];
         const count = list.reduce((s, e) => s + e.qty, 0);
-        return `<div class="team"><h3>${escapeHtml(code)} — ${escapeHtml(t ? t.name : '')}<small>${count}</small></h3><ul>` +
+        return `<section class="team"><h3><span class="team-code">${escapeHtml(code)}</span>` +
+          `<span class="team-name">${escapeHtml(t ? t.name : '')}${t && t.group ? `<small>Group ${t.group}</small>` : ''}</span>` +
+          `<span class="team-count">${count}</span></h3><ul>` +
           list.map(e =>
-            `<li><span class="id">${escapeHtml(e.id)}</span>` +
-            `<button data-id="${escapeHtml(e.id)}" data-d="-1" aria-label="One fewer">−</button>` +
+            `<li><span class="code-chip">${escapeHtml(e.id)}</span>` +
+            `<span class="stepper-inline">` +
+            `<button data-id="${escapeHtml(e.id)}" data-d="-1" aria-label="One fewer ${escapeHtml(e.id)}">−</button>` +
             `<span class="count">${e.qty}</span>` +
-            `<button data-id="${escapeHtml(e.id)}" data-d="1" aria-label="One more">+</button></li>`
-          ).join('') + '</ul></div>';
+            `<button data-id="${escapeHtml(e.id)}" data-d="1" aria-label="One more ${escapeHtml(e.id)}">+</button></span></li>`
+          ).join('') + '</ul></section>';
       }).join('');
     }
     renderRecent();
@@ -899,7 +907,8 @@
     } else {
       g.removeAttribute('style');
     }
-    $('area-btn').textContent = a ? 'Scan area (custom)' : 'Scan area';
+    $('area-label').textContent = a ? 'Scan area · custom' : 'Scan area';
+    $('area-btn').classList.toggle('on', !!a);
   }
 
   let draft = null, dragStart = null;
@@ -920,6 +929,8 @@
     $('area-editor').hidden = false;
     $('area-controls').hidden = false;
     $('guide').hidden = true;
+    // The button sits below the camera: bring the camera into view to draw on.
+    $('camera').scrollIntoView({ block: 'start' });
     setStatus('Drag on the camera view to draw the scan area.');
   }
 
