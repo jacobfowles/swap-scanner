@@ -8,6 +8,7 @@
   const OLD_STORAGE_KEY = 'panini-wc26-swaps-v1';   // single catalog, before named catalogs
   const AREA_KEY = 'panini-wc26-area-v1';
   const SOUND_KEY = 'panini-wc26-sound-v1';
+  const VIEW_KEY = 'panini-wc26-view-v1';
   const $ = id => document.getElementById(id);
 
   // ---------------------------------------------------------------- state --
@@ -28,6 +29,7 @@
     paused: false,      // auto-scan stopped after a while with no card in view
     lastSeenAt: 0,      // when auto-scan last saw a card (or was (re)started)
     loopId: 0,          // only the newest auto-scan loop keeps running
+    view: loadView(),   // catalog tab: 'have' (what's in it) or 'missing' (what isn't)
     recent: [],
     undoStack: [],      // adds in this catalog that can be undone, newest last
   };
@@ -52,6 +54,10 @@
   }
 
   const currentCatalog = () => store.catalogs[store.current];
+
+  function loadView() {
+    try { return localStorage.getItem(VIEW_KEY) === 'missing' ? 'missing' : 'have'; } catch (e) { return 'have'; }
+  }
 
   function loadArea() {
     try {
@@ -785,18 +791,37 @@
     renderCatalogPicker();
     const entries = Catalog.sortedEntries(state.items);
     const total = entries.reduce((s, e) => s + e.qty, 0);
-    const teams = new Set(entries.map(e => e.code));
     $('total-badge').textContent = `${total} spare${total === 1 ? '' : 's'}`;
+    document.querySelectorAll('.segmented button').forEach(b => b.classList.toggle('active', b.dataset.view === state.view));
+    const missingView = state.view === 'missing';
+    $('share-label').textContent = missingView ? 'Share missing' : 'Share CSV';
+    $('download-label').textContent = 'Download';
+    $('copy-label').textContent = missingView ? 'Copy missing' : 'Copy list';
+    if (missingView) renderMissing(entries); else renderHave(entries, total);
+    renderRecent();
+  }
+
+  function filterQuery() { return $('filter').value.trim().toUpperCase(); }
+  const matches = (q, id, t) => !q || id.includes(q) || (t && (t.code.includes(q) || t.name.toUpperCase().includes(q)));
+
+  function teamHeader(code, countHtml) {
+    const t = BY_CODE[code];
+    return `<h3><span class="team-code">${escapeHtml(code)}</span>` +
+      `<span class="team-name">${escapeHtml(t ? t.name : '')}${t && t.group ? `<small>Group ${t.group}</small>` : ''}</span>` +
+      countHtml + '</h3>';
+  }
+
+  function renderHave(entries, total) {
+    const teams = new Set(entries.map(e => e.code));
     $('summary').innerHTML =
       `<div><b>${total}</b><span>Spares</span></div>` +
       `<div><b>${entries.length}</b><span>Different</span></div>` +
       `<div><b>${teams.size}</b><span>Teams</span></div>`;
 
-    const q = $('filter').value.trim().toUpperCase();
+    const q = filterQuery();
     const groups = new Map();
     for (const e of entries) {
-      const t = BY_CODE[e.code];
-      if (q && !(e.id.includes(q) || (t && t.name.toUpperCase().includes(q)))) continue;
+      if (!matches(q, e.id, BY_CODE[e.code])) continue;
       if (!groups.has(e.code)) groups.set(e.code, []);
       groups.get(e.code).push(e);
     }
@@ -807,11 +832,8 @@
       $('catalog-list').innerHTML = '<div class="empty"><p>Nothing matches that filter.</p></div>';
     } else {
       $('catalog-list').innerHTML = [...groups].map(([code, list]) => {
-        const t = BY_CODE[code];
         const count = list.reduce((s, e) => s + e.qty, 0);
-        return `<section class="team"><h3><span class="team-code">${escapeHtml(code)}</span>` +
-          `<span class="team-name">${escapeHtml(t ? t.name : '')}${t && t.group ? `<small>Group ${t.group}</small>` : ''}</span>` +
-          `<span class="team-count">${count}</span></h3><ul>` +
+        return `<section class="team">${teamHeader(code, `<span class="team-count">${count}</span>`)}<ul>` +
           list.map(e =>
             `<li><span class="code-chip">${escapeHtml(e.id)}</span>` +
             `<span class="stepper-inline">` +
@@ -821,8 +843,46 @@
           ).join('') + '</ul></section>';
       }).join('');
     }
-    renderRecent();
   }
+
+  // Missing view: every album sticker this catalog has none of, by team.
+  function renderMissing(entries) {
+    const missing = Catalog.missingEntries(state.items);
+    const haveCount = Catalog.ALBUM_SIZE - missing.length;
+    const pct = Math.floor(haveCount / Catalog.ALBUM_SIZE * 100);
+    $('summary').innerHTML =
+      `<div><b>${missing.length}</b><span>Missing</span></div>` +
+      `<div><b>${haveCount}</b><span>Have</span></div>` +
+      `<div><b>${pct}%</b><span>Complete</span></div>`;
+
+    const q = filterQuery();
+    const byTeam = new Map(TEAMS.map(t => [t.code, []]));
+    for (const e of missing) byTeam.get(e.code).push(e);
+    const complete = TEAMS.filter(t => !byTeam.get(t.code).length && matches(q, '', t)).map(t => t.code);
+    const shown = TEAMS.filter(t => {
+      const list = byTeam.get(t.code);
+      return list.length && (matches(q, '', t) || list.some(e => matches(q, e.id, null)));
+    });
+
+    if (!missing.length) {
+      $('catalog-list').innerHTML = '<div class="empty"><span class="code-chip">980 / 980</span><p>Nothing missing — the album is complete!</p></div>';
+      return;
+    }
+    let html = complete.length
+      ? `<p class="complete-note"><span>✓</span> ${complete.length} team${complete.length === 1 ? '' : 's'} complete: ${complete.map(escapeHtml).join(', ')}</p>`
+      : '';
+    if (!shown.length) html += '<div class="empty"><p>Nothing missing matches that filter.</p></div>';
+    html += shown.map(t => {
+      const list = byTeam.get(t.code);
+      const size = t.max - t.min + 1;
+      return `<section class="team missing">${teamHeader(t.code, `<span class="team-count missing-count">${list.length}<small>/${size}</small></span>`)}` +
+        `<div class="num-grid" aria-label="${escapeHtml(t.code)} missing">` +
+        list.map(e => `<span class="num-chip" title="${escapeHtml(e.id)}">${e.number === 0 ? '00' : e.number}</span>`).join('') +
+        '</div></section>';
+    }).join('');
+    $('catalog-list').innerHTML = html;
+  }
+
 
   $('catalog-list').addEventListener('click', e => {
     const b = e.target.closest('button[data-id]');
@@ -832,9 +892,13 @@
   });
 
   // ----------------------------------------------------- export / import --
+  // The CSV for the current view: the catalog's stickers, or the missing ones.
   function csvFile() {
     const date = new Date().toISOString().slice(0, 10);
     const slug = currentCatalog().name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'swaps';
+    if (state.view === 'missing') {
+      return new File([Catalog.toMissingCSV(state.items)], `panini-wc26-${slug}-missing-${date}.csv`, { type: 'text/csv' });
+    }
     return new File([Catalog.toCSV(state.items)], `panini-wc26-${slug}-${date}.csv`, { type: 'text/csv' });
   }
 
@@ -854,7 +918,7 @@
     const file = csvFile();
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
-        await navigator.share({ files: [file], title: `Panini World Cup 2026 swaps — ${currentCatalog().name}` });
+        await navigator.share({ files: [file], title: `Panini World Cup 2026 ${state.view === 'missing' ? 'missing' : 'swaps'} — ${currentCatalog().name}` });
       } catch (e) {
         if (e.name !== 'AbortError') download();
       }
@@ -864,10 +928,13 @@
   }
 
   async function copyTradeText() {
-    const text = Catalog.toTradeText(state.items, currentCatalog().name);
+    const missingView = state.view === 'missing';
+    const text = missingView
+      ? Catalog.toMissingText(state.items, currentCatalog().name)
+      : Catalog.toTradeText(state.items, currentCatalog().name);
     try {
       await navigator.clipboard.writeText(text);
-      showToast('Swap list copied — paste it into a chat');
+      showToast(missingView ? 'Missing list copied — paste it into a chat' : 'Swap list copied — paste it into a chat');
     } catch (e) {
       if (navigator.share) navigator.share({ text }).catch(() => {});
       else window.prompt('Copy your swap list:', text);
@@ -1085,6 +1152,11 @@
   $('undo-last').addEventListener('click', undoLast);
 
   $('filter').addEventListener('input', render);
+  document.querySelectorAll('.segmented button').forEach(b => b.addEventListener('click', () => {
+    state.view = b.dataset.view;
+    try { localStorage.setItem(VIEW_KEY, state.view); } catch (e) {}
+    render();
+  }));
   $('share-btn').addEventListener('click', share);
   $('download-btn').addEventListener('click', download);
   $('copy-btn').addEventListener('click', copyTradeText);

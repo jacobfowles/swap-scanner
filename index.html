@@ -110,11 +110,15 @@
   </section>
 
   <section id="tab-catalog" class="tab">
+    <div class="segmented" role="tablist" aria-label="Catalog view">
+      <button role="tab" data-view="have" class="active">Have</button>
+      <button role="tab" data-view="missing">Missing</button>
+    </div>
     <div class="summary" id="summary"></div>
     <div class="actions">
-      <button id="share-btn" class="primary"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7"/></svg>Share CSV</button>
-      <button id="download-btn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>Download</button>
-      <button id="copy-btn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>Copy list</button>
+      <button id="share-btn" class="primary"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7"/></svg><span id="share-label">Share CSV</span></button>
+      <button id="download-btn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></svg><span id="download-label">Download</span></button>
+      <button id="copy-btn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg><span id="copy-label">Copy list</span></button>
       <button id="import-btn"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5"/><path d="M5 21h14"/></svg>Import</button>
       <input type="file" id="import-file" accept=".csv,text/csv,text/plain" hidden>
     </div>

@@ -106,7 +106,44 @@
     return `Panini World Cup 2026 swaps${name ? ' — ' + name : ''} (${total}):\n` + lines.join('\n');
   }
 
-  const api = { stickerId, splitId, sortedEntries, toCSV, fromCSV, toTradeText, CSV_HEADER };
+  // Every sticker in the album that this catalog has none of, in album order.
+  function missingEntries(items) {
+    const out = [];
+    for (const t of Teams.TEAMS) {
+      for (let n = t.min; n <= t.max; n++) {
+        const id = stickerId(t.code, n);
+        if (!(items[id] > 0)) out.push({ id, code: t.code, number: n });
+      }
+    }
+    return out;
+  }
+
+  const ALBUM_SIZE = Teams.TEAMS.reduce((sum, t) => sum + t.max - t.min + 1, 0);
+
+  const MISSING_HEADER = ['sticker', 'code', 'number', 'team', 'group'];
+
+  function toMissingCSV(items) {
+    const rows = [MISSING_HEADER];
+    for (const e of missingEntries(items)) {
+      const t = Teams.BY_CODE[e.code];
+      rows.push([e.id, e.code, e.number, t.name, t.group]);
+    }
+    return rows.map(r => r.map(csvCell).join(',')).join('\n') + '\n';
+  }
+
+  // "Missing (12): MEX 1, 3 / KOR 13 ..." for pasting into a chat.
+  function toMissingText(items, name) {
+    const byTeam = new Map();
+    const missing = missingEntries(items);
+    for (const e of missing) {
+      if (!byTeam.has(e.code)) byTeam.set(e.code, []);
+      byTeam.get(e.code).push(e.number);
+    }
+    const lines = [...byTeam].map(([code, nums]) => `${code} ${nums.join(', ')}`);
+    return `Panini World Cup 2026 — missing${name ? ' from ' + name : ''} (${missing.length}):\n` + lines.join('\n');
+  }
+
+  const api = { stickerId, splitId, sortedEntries, toCSV, fromCSV, toTradeText, CSV_HEADER, missingEntries, toMissingCSV, toMissingText, ALBUM_SIZE };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PaniniCatalog = api;
 })(this);

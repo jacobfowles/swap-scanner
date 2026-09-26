@@ -69,8 +69,15 @@ and open <http://localhost:8000/>.
   clear or delete it at the bottom of the Catalog tab.
 - **Catalog** — spares grouped by team in album order, with +/− buttons and a
   filter.
-- **Share / Download CSV** — columns `sticker,code,number,team,group,quantity`.
-- **Copy swap list** — e.g. `MEX 2 (x3), 12` per team, ready to paste.
+- **Have / Missing** — the switch at the top of the Catalog tab flips between
+  the stickers in the selected catalog and the ones it's missing: every
+  album sticker (980) it has none of, grouped by team with "n/20 missing",
+  plus a note of teams that are complete.
+- **Share / Download CSV** — exports the current view. *Have*: columns
+  `sticker,code,number,team,group,quantity`. *Missing*: columns
+  `sticker,code,number,team,group`, file named `…-missing-<date>.csv`.
+- **Copy list** — e.g. `MEX 2 (x3), 12` per team (or, in *Missing*, the
+  missing numbers per team), ready to paste.
 - **Import CSV** — merge another phone's export into yours (or replace your
   list). It also accepts any CSV with a `sticker` column (`MEX 12`) or `code`
   and `number` columns, plus an optional `quantity`.

@@ -56,4 +56,21 @@ assert.strictEqual(Catalog.toTradeText(items),
 
 assert.ok(Catalog.toTradeText(items, 'Sam’s swaps').startsWith('Panini World Cup 2026 swaps — Sam’s swaps (7):'));
 
+// Missing stickers: the whole album (980) minus what the catalog has.
+assert.strictEqual(Catalog.ALBUM_SIZE, 980);
+const have = { 'FWC 0': 1, 'MEX 1': 2, 'MEX 3': 1 };
+const missing = Catalog.missingEntries(have);
+assert.strictEqual(missing.length, 977);
+assert.deepStrictEqual(missing.slice(0, 3).map(e => e.id), ['FWC 1', 'FWC 2', 'FWC 3']);
+assert.ok(!missing.some(e => e.id === 'MEX 1' || e.id === 'MEX 3') && missing.some(e => e.id === 'MEX 2'));
+assert.strictEqual(Catalog.missingEntries({}).length, 980);
+const mcsv = Catalog.toMissingCSV(have).trim().split('\n');
+assert.strictEqual(mcsv[0], 'sticker,code,number,team,group');
+assert.strictEqual(mcsv.length, 978);
+assert.ok(mcsv.includes('MEX 2,MEX,2,Mexico,A'));
+assert.ok(mcsv.includes('CIV 5,CIV,5,Côte d\'Ivoire,E'));
+const mtext = Catalog.toMissingText(have, 'Our album');
+assert.ok(mtext.startsWith('Panini World Cup 2026 — missing from Our album (977):\nFWC 1, 2, 3'));
+assert.ok(mtext.includes('\nMEX 2, 4, 5, 6'));
+
 console.log('all parse/catalog tests passed');

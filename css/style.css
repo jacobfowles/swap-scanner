@@ -515,6 +515,32 @@ input.switch:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent)
 .error:empty { display: none; }
 
 /* ------------------------------------------------------------ catalog -- */
+.segmented {
+  display: flex;
+  padding: 4px;
+  margin-bottom: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.segmented button {
+  flex: 1;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: 700 1.05rem/1 var(--display);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  border-radius: 9px;
+}
+.segmented button.active {
+  background: var(--pitch-2);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .2), inset 0 -2px 0 var(--gold);
+}
+.segmented button:active:not(:disabled) { transform: none; }
+
 .summary {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -633,6 +659,49 @@ input:focus-visible, select:focus-visible {
   text-align: center;
   font: 700 1.3rem/1 var(--display);
   font-variant-numeric: tabular-nums;
+}
+
+.missing-count { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+.missing-count small { font-size: .8em; opacity: .75; }
+.num-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 14px 14px;
+}
+.num-chip {
+  min-width: 42px;
+  padding: 8px 6px 7px;
+  text-align: center;
+  font: 700 1.15rem/1 var(--display);
+  font-variant-numeric: tabular-nums;
+  border-radius: 10px;
+  background: var(--surface-2);
+  border: 1px dashed color-mix(in srgb, var(--muted) 55%, transparent);
+  color: var(--text);
+}
+.complete-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: .95rem;
+}
+.complete-note span {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  font-size: .8rem;
+  font-weight: 800;
 }
 
 .empty {
