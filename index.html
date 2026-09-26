@@ -55,6 +55,12 @@
       <div id="banner" class="banner" hidden role="status" aria-live="assertive">
         <b id="banner-main"></b><span id="banner-sub"></span>
       </div>
+      <div id="paused" class="paused" hidden role="alertdialog" aria-labelledby="paused-title">
+        <span class="code-chip muted">— —</span>
+        <h2 id="paused-title">No card found</h2>
+        <p>Auto-scan paused after a few seconds without a sticker in the box.</p>
+        <button id="resume-btn" class="primary big">Continue scanning</button>
+      </div>
       <div id="area-editor" class="area-editor" hidden>
         <div id="area-draw" class="area-draw" hidden></div>
         <p class="area-help">Drag a box around the sticker code — or around the whole sticker</p>

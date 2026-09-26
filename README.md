@@ -46,6 +46,11 @@ and open <http://localhost:8000/>.
     stand doesn't count as a new card. Knocking the stand without touching the
     screen could, which is what *Undo* is for.
 
+  - If no sticker is seen for 5 seconds, auto-scan pauses (with a buzz) and
+    shows **Continue scanning**; tap it to carry on. A crooked or unreadable
+    card still counts as a card, and time with the confirm sheet open
+    doesn't count.
+
   How to tell when to place the next card:
   - **Added:** a rising two-note beep and a big green **✓ ESP 16** banner on
     the camera view. It stays until the next card comes in.

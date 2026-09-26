@@ -345,6 +345,29 @@ button.ghost.on { border-color: var(--accent); background: var(--accent-soft); }
 .banner.warn { background: color-mix(in srgb, #d98a0b 95%, transparent); }
 @keyframes pop { from { transform: scale(.92); opacity: 0; } to { transform: none; opacity: 1; } }
 
+.paused {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 28px;
+  text-align: center;
+  color: rgba(255, 255, 255, .88);
+  background: rgba(5, 12, 9, .78);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: pop .18s ease-out;
+}
+.paused[hidden] { display: none; }
+.paused h2 { margin: 0; color: #fff; font: 800 2rem/1 var(--display); letter-spacing: .04em; text-transform: uppercase; }
+.paused p { margin: 0 0 6px; max-width: 280px; }
+.paused .code-chip.muted { background: rgba(255, 255, 255, .14); color: rgba(255, 255, 255, .7); font-size: 1.4rem; }
+.paused button { width: 100%; max-width: 300px; }
+
 .area-editor {
   position: absolute;
   inset: 0;

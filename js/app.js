@@ -25,6 +25,9 @@
     misses: 0,
     warned: false,      // crooked-card warning already given for this card
     disturbed: false,   // movement seen since the last add: a card is being stacked
+    paused: false,      // auto-scan stopped after a while with no card in view
+    lastSeenAt: 0,      // when auto-scan last saw a card (or was (re)started)
+    loopId: 0,          // only the newest auto-scan loop keeps running
     recent: [],
     undoStack: [],      // adds in this catalog that can be undone, newest last
   };
@@ -331,7 +334,7 @@
     const custom = !!state.area;
     const pill = findPill(guide, custom ? { maxWidth: 1 } : undefined);
     if (window.__scanDebug && pill) window.__scanDebug.push({ mode: 'skew', text: pill.skew.toFixed(2) });
-    if (pill && Math.abs(pill.skew) > MAX_SKEW_DEG) return { ...none, reason: 'skewed', skew: pill.skew };
+    if (pill && Math.abs(pill.skew) > MAX_SKEW_DEG) return { ...none, reason: 'skewed', skew: pill.skew, labelSeen: true };
 
     const passes = [];
     if (pill) for (const h of [120, 150, 100]) passes.push({ rect: pill.rect, h });
@@ -356,7 +359,7 @@
       if (!first) first = r;
       if (votes.get(id) >= 2) return { ...r, sure: true };
     }
-    if (!first) return { ...none, reason: 'unreadable' };
+    if (!first) return { ...none, reason: pill ? 'unreadable' : 'no-label', labelSeen: !!pill };
     return { ...first, sure: false };
   }
 
@@ -405,23 +408,59 @@
   // being stacked on top) — so a pile of identical duplicates still counts
   // one per card.
   async function autoLoop() {
-    while (state.auto && state.stream) {
+    const loop = ++state.loopId;
+    state.paused = false;
+    state.lastSeenAt = performance.now();
+    hidePaused();
+    while (state.auto && state.stream && loop === state.loopId) {
       const still = performance.now() - motion.lastAt > MOTION_SETTLE_MS;
-      if (still && $('sheet').hidden && $('area-editor').hidden && !state.scanning) {
+      const idle = $('sheet').hidden && $('area-editor').hidden;
+      // Time with the confirm sheet or area editor open doesn't count.
+      if (!idle) state.lastSeenAt = performance.now();
+      if (still && idle && !state.scanning) {
         state.scanning = true;
         setGuide('busy');
         const startedAt = performance.now();
         let r;
         try { r = await scanOnce(); } catch (e) { r = null; }
         state.scanning = false;
-        if (!state.auto) break;
+        if (!state.auto || loop !== state.loopId) break;
+        // Any label in view — read, crooked or not yet readable — is a card.
+        if (r && (r.confident || r.labelSeen)) state.lastSeenAt = performance.now();
         // Something moved while reading: that frame may be the old card.
         if (motion.lastAt <= startedAt) handleAutoRead(r);
+        if (performance.now() - state.lastSeenAt > NO_CARD_TIMEOUT_MS) { pauseAuto(); break; }
       }
       await new Promise(res => setTimeout(res, still ? 250 : 80));
     }
     setGuide(null);
   }
+
+  // After a few seconds without a card, stop scanning (it's likely the stack
+  // is done or the phone was put down) and offer a button to carry on.
+  const NO_CARD_TIMEOUT_MS = 5000;
+
+  function pauseAuto() {
+    state.paused = true;
+    state.loopId++;
+    hideBanner();
+    setGuide(null);
+    $('paused').hidden = false;
+    setStatus('Auto-scan paused — no card seen for a few seconds.');
+    beep('warn');
+  }
+
+  function hidePaused() { $('paused').hidden = true; }
+
+  function resumeAuto() {
+    armSounds();
+    if (!state.auto || !state.stream) { hidePaused(); return; }
+    state.lastRead = null;
+    state.misses = 0;
+    setStatus('Scanning — put a sticker in the box.');
+    autoLoop();
+  }
+
 
   // ----- motion: a hand or card moving through the scan area -----
   // Compares tiny grayscale snapshots of the scan area ~10x a second. Only a
@@ -461,7 +500,7 @@
     }
   }
 
-  setInterval(() => { if (state.auto && state.stream && $('area-editor').hidden) sampleMotion(); }, 100);
+  setInterval(() => { if (state.auto && !state.paused && state.stream && $('area-editor').hidden) sampleMotion(); }, 100);
   document.addEventListener('pointerdown', () => {
     motion.ignoreUntil = performance.now() + 1000;
     armSounds();
@@ -1019,15 +1058,19 @@
     lockOn(null);
     state.warned = false;
     hideBanner();
+    hidePaused();
     $('scan-btn').hidden = state.auto;
     if (state.auto) {
       if (!state.stream) { setStatus('Start the camera to auto-scan.'); return; }
       autoLoop();
     } else {
+      state.loopId++;
+      state.paused = false;
       setStatus('Auto-scan off.');
     }
   });
   $('auto-add').addEventListener('change', e => { state.autoAdd = e.target.checked; });
+  $('resume-btn').addEventListener('click', resumeAuto);
 
   teamSelect.addEventListener('change', updateSheetInfo);
   $('sheet-number').addEventListener('input', updateSheetInfo);
