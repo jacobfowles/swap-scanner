@@ -83,8 +83,15 @@ security, since GitHub Pages is static and the code is public.
 
 The code is printed in white inside a dark rounded label at the top right of
 every sticker back, and it is always three capital letters followed by a one-
-or two-digit number (`NZL 3`, `ESP 19`). The app finds that label, turns it
-into clean black-on-white text and reads it as one line.
+or two-digit number (`NZL 3`, `ESP 19`). The app first finds the sticker in
+the view, then the label along its edge, turns it into clean black-on-white
+text and reads it.
+
+The team photo (sticker 13) is landscape. Placed upright in a portrait stand
+it sits sideways, with its label running down one side — and that label is
+the other way round: dark code on a light label. The app finds either kind,
+turns a sideways label upright (whichever way round the card is) and reads it
+the same way.
 
 - A read only counts if it is exactly that format, a real team code and a
   number that exists for that team. Where a letter must be, a misread `0` is

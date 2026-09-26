@@ -1,6 +1,6 @@
 // Run with: node test/preprocess.test.js
 const assert = require('assert');
-const { splitCode, isBar } = require('../js/preprocess.js');
+const { splitCode, isBar, findCodePill } = require('../js/preprocess.js');
 
 // Draw black rectangles on a white RGBA image.
 function image(w, h, rects) {
@@ -40,5 +40,38 @@ assert.strictEqual(isBar(touching.letters[1], th), true);
 
 // No clear space between letters and number: can't split.
 assert.strictEqual(splitCode(image(200, 60, [[10, 10, 30, 49], [40, 10, 60, 49], [70, 10, 90, 49]])), null);
+
+// Sticker pictures for the label finder: grey rectangles on a dark table.
+function sticker(w, h, draw) {
+  const data = new Uint8ClampedArray(w * h * 4);
+  const fill = (x0, y0, x1, y1, v) => {
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) data.fill(v, (y * w + x) * 4, (y * w + x) * 4 + 3);
+  };
+  for (let i = 3; i < data.length; i += 4) data[i] = 255;
+  fill(0, 0, w - 1, h - 1, 40);                 // dark table
+  draw(fill);
+  return { width: w, height: h, data };
+}
+
+// Portrait sticker: dark label with white code along the top edge.
+const portrait = findCodePill(sticker(320, 448, fill => {
+  fill(20, 20, 300, 428, 235);                  // card
+  fill(40, 200, 280, 260, 70);                  // logo stroke in the middle: not a label
+  fill(170, 36, 270, 64, 60);                   // label
+  for (const x of [182, 196, 210, 236, 250]) fill(x, 42, x + 5, 58, 240);   // white letters
+}));
+assert.ok(portrait && !portrait.vertical && !portrait.inverted, 'portrait label found');
+assert.ok(portrait.y < 40 && portrait.x > 160, 'it is the label, not the logo stroke');
+
+// Landscape team photo (#13) placed sideways: light label with dark code in
+// the dark strip along the right edge.
+const sideways = findCodePill(sticker(320, 448, fill => {
+  fill(20, 20, 300, 428, 235);                  // card
+  fill(230, 150, 290, 400, 70);                 // dark strip
+  fill(250, 250, 280, 350, 225);                // light label
+  for (const y of [262, 276, 290, 316, 330]) fill(258, y, 272, y + 5, 60);   // dark letters
+}));
+assert.ok(sideways && sideways.vertical && sideways.inverted, 'sideways inverted label found');
+assert.ok(Math.abs(sideways.angle) < 0.05, 'its tilt is measured from the vertical');
 
 console.log('all preprocess tests passed');

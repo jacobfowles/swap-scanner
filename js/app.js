@@ -161,27 +161,37 @@
     return { x, y, w: Math.min(vw - x, g.width / scale), h: Math.min(vh - y, g.height / scale) };
   }
 
-  // Draw a rectangle of the current frame onto the work canvas at `targetW`
-  // pixels wide; return its pixels.
-  function grab(rect, targetW) {
-    const k = targetW / rect.w;
+  // Draw a rectangle of the current frame onto the work canvas, `targetW`
+  // pixels wide once turned by `rot` degrees (0, 90 or -90: a sideways label
+  // is turned upright); return its pixels.
+  function grab(rect, targetW, rot = 0) {
+    const turned = rot !== 0;
+    const k = targetW / (turned ? rect.h : rect.w);
     const canvas = $('work');
-    canvas.width = Math.max(1, Math.round(rect.w * k));
-    canvas.height = Math.max(1, Math.round(rect.h * k));
+    canvas.width = Math.max(1, Math.round((turned ? rect.h : rect.w) * k));
+    canvas.height = Math.max(1, Math.round((turned ? rect.w : rect.h) * k));
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(video, rect.x, rect.y, rect.w, rect.h, 0, 0, canvas.width, canvas.height);
+    if (turned) {
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate(rot * Math.PI / 180);
+      ctx.drawImage(video, rect.x, rect.y, rect.w, rect.h, -rect.w * k / 2, -rect.h * k / 2, rect.w * k, rect.h * k);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    } else {
+      ctx.drawImage(video, rect.x, rect.y, rect.w, rect.h, 0, 0, canvas.width, canvas.height);
+    }
     return { canvas, ctx, img: ctx.getImageData(0, 0, canvas.width, canvas.height) };
   }
 
   // The label as dark text on white, `height` px tall (Tesseract reads text
   // best around 40-60px high). Returns an unpadded canvas of its own.
-  function labelCanvas(rect, height) {
-    const { canvas, ctx, img } = grab(rect, height * rect.w / rect.h);
+  function labelCanvas(rect, height, rot = 0, inverted = false) {
+    const long = rot ? rect.h : rect.w, short = rot ? rect.w : rect.h;
+    const { canvas, ctx, img } = grab(rect, height * long / short, rot);
     const out = document.createElement('canvas');
     out.width = canvas.width;
     out.height = canvas.height;
     out.getContext('2d', { willReadFrequently: true })
-      .putImageData(isolateText(clearBorder(prepareForOcr(img, 'invert'))), 0, 0);
+      .putImageData(isolateText(clearBorder(prepareForOcr(img, inverted ? 'plain' : 'invert'))), 0, 0);
     return out;
   }
 
@@ -225,7 +235,7 @@
       w: Math.min(video.videoWidth - x, (p.w + 2 * pad) * k),
       h: Math.min(video.videoHeight - y, (p.h + 2 * pad) * k),
     };
-    return { rect, skew: p.angle * 180 / Math.PI };
+    return { rect, skew: p.angle * 180 / Math.PI, vertical: p.vertical, inverted: p.inverted };
   }
 
   const LINE = { tessedit_pageseg_mode: '7', tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ' };
@@ -265,8 +275,8 @@
   // SUI...). The code is then the real code that best matches every letter
   // the OCR considered — "G or C", "I", "V" gives CIV. The digit count must
   // match the digit glyphs. If the label can't be split, read it as a line.
-  async function readLabel(worker, rect, height) {
-    const label = labelCanvas(rect, height);
+  async function readLabel(worker, rect, height, rot = 0, inverted = false) {
+    const label = labelCanvas(rect, height, rot, inverted);
     const parts = splitCode(label.getContext('2d').getImageData(0, 0, label.width, label.height));
     if (parts) {
       const { top, bottom } = parts;
@@ -328,11 +338,18 @@
     // A box drawn tight around (or inside) the label: read the whole box too.
     if (custom) passes.push({ rect: guide, h: 120 });
     if (!passes.length) return { ...none, reason: 'no-label' };
+    // A vertical label (landscape sticker placed sideways) is turned upright;
+    // the card may face either way, so try both turns until one reads.
+    let turns = pill && pill.vertical ? [-90, 90] : [0];
 
     const votes = new Map();
     let first = null;
     for (const pass of passes) {
-      const r = await readLabel(worker, pass.rect, pass.h);
+      let r = null;
+      for (const rot of pass.rect === guide ? [0] : turns) {
+        r = await readLabel(worker, pass.rect, pass.h, rot, pass.rect !== guide && !!pill.inverted);
+        if (r.confident) { if (turns.length > 1) turns = [rot]; break; }
+      }
       if (!r.confident) continue;
       const id = Catalog.stickerId(r.code, r.number);
       votes.set(id, (votes.get(id) || 0) + 1);

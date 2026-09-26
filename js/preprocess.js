@@ -89,20 +89,92 @@
 
   // Find the dark rounded label holding the code (e.g. "NZL 3") on a sticker
   // back: a solid dark blob, roughly 2-7x wider than tall, 12-55% of the
-  // image width, and in the top half. Returns its bounding box { x, y, w, h }
-  // plus centre (cx, cy), length, thickness and tilt angle (radians), or null.
+  // image width, and in the top half — or vertical anywhere, for a landscape
+  // sticker placed sideways. Returns its bounding box { x, y, w, h } plus
+  // centre (cx, cy), length, thickness, `vertical`, and its tilt from the
+  // nearest axis (radians), and `inverted` (dark code on a light label).
   // Works on a small image (~300px wide) for speed. `maxWidth` can be raised
   // when the image is a user-drawn box tight around the label.
-  function findCodePill(img, { maxWidth = 0.55 } = {}) {
+  function findCodePill(img, { maxWidth = 0.55, debug = null } = {}) {
     const { width: w, height: h } = img;
     const g = toGray(img);
-    const t = otsu(g);
-    const dark = new Uint8Array(w * h);
-    for (let i = 0; i < g.length; i++) dark[i] = g[i] < t ? 1 : 0;
+    // Look inside the card first: measured over the whole view, a dark table
+    // can swamp the light/dark threshold so the label blends into the card.
+    const card = cardBox(g, w, h);
+    if (card) {
+      const sub = new Uint8ClampedArray(card.w * card.h);
+      for (let y = 0; y < card.h; y++) sub.set(g.subarray((card.y + y) * w + card.x, (card.y + y) * w + card.x + card.w), y * card.w);
+      const p = findPillGray(sub, card.w, card.h, maxWidth, debug, true);
+      if (p) {
+        p.x += card.x; p.y += card.y; p.cx += card.x; p.cy += card.y;
+        return p;
+      }
+    }
+    return findPillGray(g, w, h, maxWidth, debug);
+  }
 
+  // Bounding box of the sticker, if it can be told apart: the biggest region
+  // of the whitest pixels (the sticker's white border rings the card, even
+  // when a brightly lit table is nearly as light), else of the lighter half.
+  // Only plausible if it's a good part of the view but not all of it.
+  function cardBox(g, w, h) {
+    const t = otsu(g);
+    const upper = g.filter(v => v > t);
+    return (upper.length && lightBox(g, w, h, otsu(upper))) || lightBox(g, w, h, t);
+  }
+
+  function lightBox(g, w, h, t) {
+    const seen = new Uint8Array(w * h);
+    const stack = [];
+    let best = null;
+    for (let s = 0; s < w * h; s++) {
+      if (seen[s] || g[s] <= t) continue;
+      let x0 = w, y0 = h, x1 = 0, y1 = 0, n = 0;
+      seen[s] = 1;
+      stack.push(s);
+      while (stack.length) {
+        const p = stack.pop();
+        const x = p % w, y = (p - x) / w;
+        n++;
+        if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (y < y0) y0 = y; if (y > y1) y1 = y;
+        for (const q of [x > 0 ? p - 1 : -1, x < w - 1 ? p + 1 : -1, y > 0 ? p - w : -1, y < h - 1 ? p + w : -1]) {
+          if (q >= 0 && !seen[q] && g[q] > t) { seen[q] = 1; stack.push(q); }
+        }
+      }
+      if (!best || n > best.n) best = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, n };
+    }
+    if (!best) return null;
+    const frac = (best.w * best.h) / (w * h);
+    return frac > 0.15 && frac < 0.9 ? best : null;
+  }
+
+  // Portrait stickers: white code on a dark label. The landscape team photo
+  // (#13) has it the other way round — dark code on a light label inside
+  // the dark strip — so look for both, preferring the usual kind.
+  function findPillGray(g, w, h, maxWidth, debug, inCard = false) {
+    const t = otsu(g);
+    const dark = new Uint8Array(w * h), light = new Uint8Array(w * h);
+    // otsu() returns the brightest level of the dark class.
+    for (let i = 0; i < g.length; i++) { dark[i] = g[i] <= t ? 1 : 0; light[i] = 1 - dark[i]; }
+    const a = findPillIn(dark, w, h, maxWidth, debug, inCard);
+    const b = findPillIn(light, w, h, maxWidth, debug, inCard);
+    if (b) b.score *= 0.5;
+    const best = !a ? b : !b ? a : (a.score >= b.score ? a : b);
+    if (!best) return null;
+    best.inverted = best === b;
+    delete best.score;
+    return best;
+  }
+
+  function findPillIn(dark, w, h, maxWidth, debug, inCard) {
     // Close small gaps (the white letters) so the label is one blob: a
     // horizontal then vertical run fill over short light gaps.
-    const gapX = Math.max(2, Math.round(w / 40)), gapY = Math.max(2, Math.round(h / 60));
+    // Just wide enough to bridge the thin white letter strokes; wider, and a
+    // label close to the card's edge merges with the dark table around the
+    // card. Same both ways: a landscape sticker (the team photo, #13) sits
+    // sideways, so its label runs vertically.
+    const gapX = Math.max(2, Math.round(w / 100)), gapY = gapX;
     const filled = dark.slice();
     for (let y = 0; y < h; y++) {
       let last = -1;
@@ -130,7 +202,7 @@
       if (!closed[s] || label[s]) continue;
       next++;
       let x0 = w, y0 = h, x1 = 0, y1 = 0, area = 0;
-      let sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+      let sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0, ink = 0;
       stack.push(s);
       label[s] = next;
       while (stack.length) {
@@ -138,6 +210,7 @@
         const px = p % w, py = (p - px) / w;
         area++;
         sx += px; sy += py; sxx += px * px; syy += py * py; sxy += px * py;
+        ink += dark[p];
         if (px < x0) x0 = px; if (px > x1) x1 = px;
         if (py < y0) y0 = py; if (py > y1) y1 = py;
         if (px > 0 && closed[p - 1] && !label[p - 1]) { label[p - 1] = next; stack.push(p - 1); }
@@ -153,17 +226,32 @@
       const angle = 0.5 * Math.atan2(2 * vxy, vxx - vyy);
       const mid = (vxx + vyy) / 2, dev = Math.sqrt(((vxx - vyy) / 2) ** 2 + vxy * vxy);
       const len = Math.sqrt(12 * (mid + dev)), thick = Math.sqrt(12 * Math.max(0, mid - dev));
-      if (!thick || Math.abs(angle) > 0.35) continue;
+      // A label running up/down (landscape sticker placed sideways) is
+      // vertical; its tilt is measured from the vertical.
+      const vertical = Math.abs(angle) > Math.PI / 4;
+      if (debug && area > 40) debug.push({ x0, y0, x1, y1, area, len: +len.toFixed(1), thick: +thick.toFixed(1), angle: +(angle * 57.3).toFixed(1), fill: +(area / (len * thick)).toFixed(2), solid: +(ink / area).toFixed(2) });
+      const tilt = vertical ? angle - Math.sign(angle) * Math.PI / 2 : angle;
+      if (!thick || Math.abs(tilt) > 0.35) continue;
       const aspect = len / thick, fill = area / (len * thick);
       if (aspect < 2 || aspect > 7) continue;
       if (len < w * 0.12 || len > w * maxWidth) continue;
-      if (fill < 0.6 || y0 > h * 0.5) continue;
-      // Prefer big, solid, high-up blobs.
-      const score = area * Math.min(1, fill) * (1 - y0 / h);
-      if (!best || score > best.score) best = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, cx, cy, len, thick, angle, score };
+      if (fill < 0.6) continue;
+      // Where the label can be. Within a found card it always sits at the
+      // edge: along the top (portrait), or along a side (landscape sticker
+      // placed sideways). Otherwise, a horizontal label is in the top half.
+      if (inCard) {
+        if (vertical ? Math.min(x0, w - 1 - x1) > w * 0.15 : y0 > h * 0.15) continue;
+      } else if (!vertical && y0 > h * 0.5) continue;
+      // The label is solid ink with thin white letters; a block of dark
+      // text ("OFFICIAL LICENSED PRODUCT") is mostly light paper between
+      // letters, even though gap-closing makes it one blob too.
+      const solid = ink / area;
+      if (solid < 0.8) continue;
+      // Prefer big, solid, high-up horizontal labels; a vertical one only
+      // wins when there's no horizontal label.
+      const score = area * Math.min(1, fill) * solid * solid * (vertical ? 0.4 : 1 - y0 / h);
+      if (!best || score > best.score) best = { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, cx, cy, len, thick, angle: tilt, vertical, score };
     }
-    if (!best) return null;
-    delete best.score;
     return best;
   }
 
@@ -306,7 +394,7 @@
     return thickness / h < 0.25 && run.rowMax <= 1.8 * thickness && h > 0.75 * letterHeight;
   }
 
-  const api = { prepareForOcr, otsu, findCodePill, clearBorder, isolateText, splitCode, isBar };
+  const api = { prepareForOcr, otsu, findCodePill, cardBox, toGray, clearBorder, isolateText, splitCode, isBar };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PaniniPreprocess = api;
 })(this);
